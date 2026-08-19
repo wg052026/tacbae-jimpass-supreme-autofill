@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         KREAM 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.0.0
+// @version      1.1.0
 // @description  롯데글로벌로지스 KREAM 택배예약(방문/편의점) 발송인·물품정보 자동입력
 // @author       wg052026
 // @match        https://www.lotteglogis.com/home/reservation/kream/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/kream-autofill.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/kream-autofill.user.js
 // ==/UserScript==
@@ -14,18 +16,46 @@
 (function () {
   "use strict";
 
-  // ── 발송인 기본값 (여기만 고치면 됨) ─────────────────────────────
-  const SENDER = {
-    name: "르플러스",
-    tel1: "010",
-    tel2: "5454",
-    tel3: "7930",
-    roadKeyword: "죽전로1길6-14",
-    addr3: "302호",
-    goodsName: "크림판매",
-    goodsValue: "500000", // storeForm은 최대 100만원, form은 최대 300만원
-    goodsNumber: "1",
-  };
+  // ── 발송인 정보: 코드에 안 넣고 Tampermonkey 로컬 저장소에만 저장 ──
+  const CONFIG_KEY = "kream_sender_config";
+  const CONFIG_FIELDS = [
+    { key: "name", label: "성명 (최대 10자)" },
+    { key: "tel1", label: "전화번호 앞자리 (예: 010)" },
+    { key: "tel2", label: "전화번호 중간자리" },
+    { key: "tel3", label: "전화번호 뒷자리" },
+    { key: "roadKeyword", label: "도로명 주소 검색어 (예: 죽전로1길6-14)" },
+    { key: "addr3", label: "상세주소 (예: 302호)" },
+    { key: "goodsName", label: "물품명 (최대 15자)" },
+    { key: "goodsValue", label: "물품가액 (숫자만, storeForm 최대 100만/form 최대 300만)" },
+    { key: "goodsNumber", label: "개수 (최대 9)" },
+  ];
+
+  function getConfig() {
+    return GM_getValue(CONFIG_KEY, null);
+  }
+
+  function saveConfig(cfg) {
+    GM_setValue(CONFIG_KEY, cfg);
+  }
+
+  function runSetupWizard() {
+    const existing = getConfig() || {};
+    const next = {};
+    for (const f of CONFIG_FIELDS) {
+      const val = window.prompt(f.label, existing[f.key] || "");
+      if (val === null) {
+        window.alert("설정이 취소되었습니다. 저장된 값이 없으면 자동입력이 동작하지 않습니다.");
+        return;
+      }
+      next[f.key] = val.trim();
+    }
+    saveConfig(next);
+    window.alert("발송인 정보가 저장되었습니다. 이 정보는 이 브라우저에만 저장되며 GitHub에는 올라가지 않습니다.");
+  }
+
+  if (typeof GM_registerMenuCommand === "function") {
+    GM_registerMenuCommand("발송인 정보 설정/수정", runSetupWizard);
+  }
   // ──────────────────────────────────────────────────────────────
 
   function byId(id) {
@@ -142,6 +172,14 @@
     watchImgPopup();
     const F = getFieldMap();
     if (!F) return;
+
+    const SENDER = getConfig();
+    if (!SENDER || !SENDER.name) {
+      window.alert(
+        "발송인 정보가 설정되지 않았습니다.\nTampermonkey 아이콘 → 이 스크립트 → \"발송인 정보 설정/수정\" 메뉴에서 먼저 입력해주세요."
+      );
+      return;
+    }
 
     await typeChar(byId(F.name), SENDER.name);
     await typeChar(byId(F.tel1), SENDER.tel1);
