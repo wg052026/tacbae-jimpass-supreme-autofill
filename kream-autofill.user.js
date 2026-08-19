@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KREAM 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.1.0
+// @version      1.2.0
 // @description  롯데글로벌로지스 KREAM 택배예약(방문/편의점) 발송인·물품정보 자동입력
 // @author       wg052026
 // @match        https://www.lotteglogis.com/home/reservation/kream/*
@@ -39,18 +39,78 @@
   }
 
   function runSetupWizard() {
+    if (document.getElementById("kream-af-modal")) return;
     const existing = getConfig() || {};
-    const next = {};
-    for (const f of CONFIG_FIELDS) {
-      const val = window.prompt(f.label, existing[f.key] || "");
-      if (val === null) {
-        window.alert("설정이 취소되었습니다. 저장된 값이 없으면 자동입력이 동작하지 않습니다.");
-        return;
-      }
-      next[f.key] = val.trim();
-    }
-    saveConfig(next);
-    window.alert("발송인 정보가 저장되었습니다. 이 정보는 이 브라우저에만 저장되며 GitHub에는 올라가지 않습니다.");
+
+    const overlay = document.createElement("div");
+    overlay.id = "kream-af-modal";
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.6);" +
+      "display:flex;align-items:center;justify-content:center;font-family:sans-serif;";
+
+    const box = document.createElement("div");
+    box.style.cssText =
+      "background:#1a1a1a;color:#eee;border-radius:10px;padding:20px;width:340px;" +
+      "max-height:85vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.5);";
+
+    const title = document.createElement("h2");
+    title.textContent = "발송인 정보 설정";
+    title.style.cssText = "font-size:16px;margin:0 0 14px;";
+    box.appendChild(title);
+
+    const inputs = {};
+    CONFIG_FIELDS.forEach((f) => {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "margin-bottom:10px;";
+      const label = document.createElement("label");
+      label.textContent = f.label;
+      label.style.cssText = "display:block;font-size:12px;color:#aaa;margin-bottom:4px;";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = existing[f.key] || "";
+      input.style.cssText =
+        "width:100%;box-sizing:border-box;background:#000;color:#eee;border:1px solid #444;" +
+        "border-radius:5px;padding:7px 8px;font-size:13px;";
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      box.appendChild(wrap);
+      inputs[f.key] = input;
+    });
+
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:8px;margin-top:12px;";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "저장";
+    saveBtn.style.cssText =
+      "flex:1;background:#2f7d3c;color:#fff;border:none;border-radius:6px;padding:9px;cursor:pointer;font-size:13px;";
+    saveBtn.addEventListener("click", () => {
+      const next = {};
+      CONFIG_FIELDS.forEach((f) => {
+        next[f.key] = inputs[f.key].value.trim();
+      });
+      saveConfig(next);
+      overlay.remove();
+      window.alert("발송인 정보가 저장되었습니다. 이 정보는 이 브라우저에만 저장되며 GitHub에는 올라가지 않습니다.");
+    });
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "취소";
+    cancelBtn.style.cssText =
+      "flex:1;background:transparent;color:#ccc;border:1px solid #555;border-radius:6px;padding:9px;cursor:pointer;font-size:13px;";
+    cancelBtn.addEventListener("click", () => overlay.remove());
+
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    box.appendChild(btnRow);
+
+    overlay.appendChild(box);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
   }
 
   if (typeof GM_registerMenuCommand === "function") {
@@ -175,9 +235,8 @@
 
     const SENDER = getConfig();
     if (!SENDER || !SENDER.name) {
-      window.alert(
-        "발송인 정보가 설정되지 않았습니다.\nTampermonkey 아이콘 → 이 스크립트 → \"발송인 정보 설정/수정\" 메뉴에서 먼저 입력해주세요."
-      );
+      window.alert('발송인 정보가 아직 설정되지 않았습니다.\n지금 바로 설정창을 열어드릴게요.');
+      runSetupWizard();
       return;
     }
 
