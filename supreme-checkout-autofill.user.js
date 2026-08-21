@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.0.0
+// @version      1.1.0
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -170,7 +170,8 @@
       const c = g(KEY_COMMON, {});
       const kr = g(KEY_KR, {});
       if (!c.email || !kr.address1) {
-        console.log("[Supreme 자동입력] KR 정보 미설정 — 메뉴에서 설정해주세요.");
+        window.alert("[Supreme 자동입력] 배송지 정보가 아직 설정되지 않았습니다.\n지금 바로 설정창을 열어드릴게요.");
+        openSettings();
         return;
       }
       await runGenericAutofill(buildKrFields());
@@ -179,7 +180,8 @@
       const profile = g(active === "or" ? KEY_US_OR : KEY_US_NJ, {});
       const c = g(KEY_COMMON, {});
       if (!c.email || !profile.address1) {
-        console.log("[Supreme 자동입력] US 정보 미설정 — 메뉴에서 설정해주세요.");
+        window.alert("[Supreme 자동입력] 배송지 정보가 아직 설정되지 않았습니다.\n지금 바로 설정창을 열어드릴게요.");
+        openSettings();
         return;
       }
       await runGenericAutofill(buildUsFields(profile));
