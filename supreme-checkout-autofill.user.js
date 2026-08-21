@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.5.0
+// @version      1.5.1
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -43,7 +43,7 @@
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.5.0" });
+  sendDiag({ step: "script_loaded", v: "1.5.1" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -176,13 +176,28 @@
     return String(v == null ? "" : v).replace(/[\s()\-]/g, "").toLowerCase();
   }
 
+  let enforceTimer = null;
+
+  function stopEnforcing() {
+    if (enforceTimer) {
+      clearInterval(enforceTimer);
+      enforceTimer = null;
+    }
+  }
+
   function startEnforcing(fields) {
+    stopEnforcing();
     if (!fields || !fields.length) return;
     const startTs = Date.now();
     let fixCount = 0;
-    const timer = setInterval(() => {
+    const myTimer = setInterval(() => {
+      if (enforceTimer !== myTimer) {
+        clearInterval(myTimer);
+        return;
+      }
       if (Date.now() - startTs >= ENFORCE_DURATION_MS) {
-        clearInterval(timer);
+        clearInterval(myTimer);
+        if (enforceTimer === myTimer) enforceTimer = null;
         sendDiag({ step: "enforce_finished", fixCount });
         return;
       }
@@ -197,11 +212,13 @@
         if (!el) continue;
         if (el.type === "checkbox" || el.type === "radio") continue;
         if (document.activeElement === el) continue; // 사용자가 직접 입력 중이면 건드리지 않음
-        if (normalizeForCompare(el.value) !== normalizeForCompare(f.value)) {
+        const nowNorm = normalizeForCompare(el.value);
+        const wantNorm = normalizeForCompare(f.value);
+        if (nowNorm !== wantNorm) {
           try {
             setNativeValue(el, f.value);
             fixCount++;
-            if (fixCount <= 5 || fixCount % 10 === 0) {
+            if (fixCount <= 5 || fixCount % 20 === 0) {
               sendDiag({
                 step: "re_fill",
                 target: (f.selector || f.labelText || "").slice(0, 28),
@@ -213,6 +230,7 @@
         }
       }
     }, ENFORCE_INTERVAL_MS);
+    enforceTimer = myTimer;
   }
 
   // ── 프로필별 필드 목록 구성 ──────────────────────────────────────
@@ -251,8 +269,17 @@
     ];
   }
 
+  let running = false;
+
   async function run() {
-    sendDiag({ step: "run_called", hostname: location.hostname });
+    if (running) {
+      sendDiag({ step: "run_skipped_already_running" });
+      return;
+    }
+    running = true;
+    stopEnforcing();
+    try {
+      sendDiag({ step: "run_called", hostname: location.hostname });
     if (location.hostname === "shop.supreme.com") {
       const c = g(KEY_COMMON, {});
       const kr = g(KEY_KR, {});
@@ -280,8 +307,11 @@
       await runGenericAutofill(usFields);
       sendDiag({ step: "us_autofill_done" });
       startEnforcing(usFields);
-    } else {
-      sendDiag({ step: "hostname_no_match" });
+      } else {
+        sendDiag({ step: "hostname_no_match" });
+      }
+    } finally {
+      running = false;
     }
   }
 
