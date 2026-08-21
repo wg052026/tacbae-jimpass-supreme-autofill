@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.4.1
+// @version      1.5.0
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -43,7 +43,7 @@
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.4.1" });
+  sendDiag({ step: "script_loaded", v: "1.5.0" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -439,6 +439,59 @@
     document.body.appendChild(overlay);
   }
 
+  function createProfileSwitcher() {
+    if (location.hostname !== "us.supreme.com") return;
+    if (document.getElementById("supreme-af-switcher")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "supreme-af-switcher";
+    wrap.style.cssText =
+      "position:fixed;bottom:16px;right:16px;z-index:2147483647;background:#1a1a1a;" +
+      "border:1px solid #333;border-radius:10px;padding:10px 12px;font-family:sans-serif;" +
+      "box-shadow:0 3px 14px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:7px;";
+
+    const title = document.createElement("div");
+    title.textContent = "배송지";
+    title.style.cssText = "font-size:11px;color:#888;";
+    wrap.appendChild(title);
+
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:6px;";
+
+    function makeBtn(label, key) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.dataset.key = key;
+      b.style.cssText =
+        "border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600;";
+      b.addEventListener("click", () => {
+        s(KEY_US_ACTIVE, key);
+        paint();
+        run();
+      });
+      return b;
+    }
+
+    const njBtn = makeBtn("뉴저지", "nj");
+    const orBtn = makeBtn("오레곤", "or");
+    btnRow.appendChild(njBtn);
+    btnRow.appendChild(orBtn);
+    wrap.appendChild(btnRow);
+
+    function paint() {
+      const active = g(KEY_US_ACTIVE, "nj");
+      [njBtn, orBtn].forEach((b) => {
+        const on = b.dataset.key === active;
+        b.style.background = on ? "#da291c" : "#2a2a2a";
+        b.style.color = on ? "#fff" : "#aaa";
+      });
+    }
+    paint();
+
+    document.body.appendChild(wrap);
+  }
+
   if (typeof GM_registerMenuCommand === "function") {
     GM_registerMenuCommand("배송지 정보 설정/수정", openSettings);
     GM_registerMenuCommand("지금 강제로 다시 채우기", () => {
@@ -449,5 +502,8 @@
     });
   }
 
-  setTimeout(run, 500);
+  setTimeout(() => {
+    createProfileSwitcher();
+    run();
+  }, 500);
 })();
