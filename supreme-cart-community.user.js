@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.0.0
+// @version      1.1.0
 // @description  supremecommunity.com에서 상품을 여러 장바구니에 나눠 담고, 슬라이드 패널에서 컬러/사이즈를 골라 관리합니다.
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -255,15 +255,32 @@
   const collapsedState = {};
   let panelRoot = null;
 
+  const CUSTOM_OPTION = "__custom__";
+
+  function makeTextInput(value, placeholder, onChange) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.value = value || "";
+    input.addEventListener("change", () => onChange(input.value.trim()));
+    return input;
+  }
+
   function buildFieldEl({ options, value, placeholder, onChange }) {
-    if (options && options.length > 0) {
+    const wrap = document.createElement("span");
+    wrap.className = "scf-field";
+
+    function renderSelect() {
+      wrap.textContent = "";
       const select = document.createElement("select");
-      const optList = options.slice();
-      if (value && !optList.includes(value)) optList.unshift(value);
+      const optList = (options || []).slice();
+      const isCustomValue = value && !optList.includes(value);
+
       const blank = document.createElement("option");
       blank.value = "";
       blank.textContent = placeholder;
       select.appendChild(blank);
+
       optList.forEach((opt) => {
         const o = document.createElement("option");
         o.value = opt;
@@ -271,15 +288,51 @@
         if (opt === value) o.selected = true;
         select.appendChild(o);
       });
-      select.addEventListener("change", () => onChange(select.value));
-      return select;
+
+      const customOpt = document.createElement("option");
+      customOpt.value = CUSTOM_OPTION;
+      customOpt.textContent = "직접 입력...";
+      if (isCustomValue) customOpt.selected = true;
+      select.appendChild(customOpt);
+
+      select.addEventListener("change", () => {
+        if (select.value === CUSTOM_OPTION) {
+          renderInput("");
+          return;
+        }
+        value = select.value;
+        onChange(select.value);
+      });
+
+      wrap.appendChild(select);
+      if (isCustomValue) renderInput(value);
     }
-    const input = document.createElement("input");
-    input.type = "text";
-    input.placeholder = placeholder;
-    input.value = value || "";
-    input.addEventListener("change", () => onChange(input.value));
-    return input;
+
+    function renderInput(initial) {
+      wrap.textContent = "";
+      const input = makeTextInput(initial, placeholder + " 직접입력", (val) => {
+        value = val;
+        onChange(val);
+      });
+      wrap.appendChild(input);
+
+      const backBtn = document.createElement("button");
+      backBtn.className = "scf-icon-btn scf-back-btn";
+      backBtn.textContent = "\u21a9";
+      backBtn.title = "목록에서 고르기";
+      backBtn.addEventListener("click", () => {
+        value = "";
+        onChange("");
+        renderSelect();
+      });
+      if (options && options.length) wrap.appendChild(backBtn);
+      input.focus();
+    }
+
+    if (options && options.length > 0) renderSelect();
+    else renderInput(value || "");
+
+    return wrap;
   }
 
   const STATUS_LABEL = {
@@ -673,6 +726,8 @@
 .scf-thumb{width:40px;height:40px;border-radius:4px;object-fit:cover;background:#000;flex-shrink:0;}
 .scf-item-title{flex:1;min-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
 .scf-item-row input,.scf-item-row select{width:76px;background:#000;border:1px solid #444;color:#eee;border-radius:4px;padding:5px 6px;font-size:12px;}
+.scf-field{display:inline-flex;align-items:center;gap:2px;}
+.scf-back-btn{font-size:12px;padding:0 2px;}
 .scf-loading{font-size:11px;color:#666;width:76px;}
 .scf-empty{color:#666;text-align:center;padding:30px 0;font-size:12px;white-space:pre-line;}
 `;
