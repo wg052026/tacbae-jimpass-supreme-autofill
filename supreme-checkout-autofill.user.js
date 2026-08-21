@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.3.0
+// @version      1.4.0
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -10,8 +10,6 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
-// @grant        GM_xmlhttpRequest
-// @connect      webhook.site
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/supreme-checkout-autofill.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/supreme-checkout-autofill.user.js
 // ==/UserScript==
@@ -19,18 +17,33 @@
 (function () {
   "use strict";
 
-  const DIAG_URL = "https://webhook.site/d206ae0b-4110-47f3-98e4-9c74f90cb230";
-  function sendDiag(payload) {
-    try {
-      GM_xmlhttpRequest({
-        method: "POST",
-        url: DIAG_URL,
-        headers: { "Content-Type": "text/plain" },
-        data: JSON.stringify({ ts: new Date().toISOString(), pageUrl: location.href, script: "supreme-checkout", ...payload }),
-      });
-    } catch (e) {}
+  // 화면 우측 상단에 상태를 직접 표시 (외부 전송 없음)
+  let panelEl = null;
+  function ensurePanel() {
+    if (panelEl && document.body.contains(panelEl)) return panelEl;
+    panelEl = document.createElement("div");
+    panelEl.id = "supreme-af-status";
+    panelEl.style.cssText =
+      "position:fixed;top:12px;right:12px;z-index:2147483647;background:#111;color:#8f8;" +
+      "font-family:monospace;font-size:11px;line-height:1.5;padding:8px 10px;border-radius:8px;" +
+      "max-width:280px;max-height:40vh;overflow-y:auto;box-shadow:0 2px 10px rgba(0,0,0,.4);white-space:pre-wrap;";
+    document.body.appendChild(panelEl);
+    return panelEl;
   }
-  sendDiag({ step: "script_loaded" });
+
+  const logLines = [];
+  function sendDiag(payload) {
+    const text = Object.entries(payload)
+      .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+      .join(" ");
+    logLines.push(text);
+    if (logLines.length > 30) logLines.shift();
+    try {
+      ensurePanel().textContent = logLines.join("\n");
+    } catch (e) {}
+    console.log("[Supreme 자동입력]", text);
+  }
+  sendDiag({ step: "script_loaded", v: "1.4.0" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -148,8 +161,8 @@
   }
 
   // 브라우저 자동완성 등이 값을 덮어써도, 일정 시간 동안 우리 값으로 계속 되돌린다.
-  const ENFORCE_DURATION_MS = 12000;
-  const ENFORCE_INTERVAL_MS = 500;
+  const ENFORCE_DURATION_MS = 30000;
+  const ENFORCE_INTERVAL_MS = 400;
 
   function normalizeForCompare(v) {
     return String(v == null ? "" : v).replace(/[\s()\-]/g, "").toLowerCase();
@@ -414,6 +427,9 @@
     GM_registerMenuCommand("배송지 정보 설정/수정", openSettings);
     GM_registerMenuCommand("지금 강제로 다시 채우기", () => {
       run();
+    });
+    GM_registerMenuCommand("상태창 숨기기", () => {
+      if (panelEl) panelEl.remove();
     });
   }
 
