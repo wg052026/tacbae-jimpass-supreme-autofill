@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.4.0
+// @version      1.4.1
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -43,7 +43,7 @@
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.4.0" });
+  sendDiag({ step: "script_loaded", v: "1.4.1" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -60,10 +60,29 @@
   }
 
   // ── 필드 자동입력 엔진 (기존 확장 genericMainWorld.js 그대로 이식) ──
+  function nativeSet(el, value) {
+    const tag = el.tagName;
+    try {
+      const proto =
+        tag === "TEXTAREA"
+          ? window.HTMLTextAreaElement.prototype
+          : tag === "SELECT"
+          ? window.HTMLSelectElement.prototype
+          : window.HTMLInputElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "value");
+      if (desc && desc.set) {
+        desc.set.call(el, value);
+        return;
+      }
+    } catch (e) {}
+    el.value = value;
+  }
+
   function setNativeValue(el, value) {
     const tag = el.tagName;
     if (tag === "SELECT") {
-      el.value = value;
+      nativeSet(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
       return;
     }
@@ -81,26 +100,15 @@
       el.focus();
     } catch (e) {}
     try {
-      el.value = "";
+      nativeSet(el, "");
       el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
     } catch (e) {}
 
     let current = "";
     for (const ch of String(value)) {
       current += ch;
-      let ok = true;
-      try {
-        el.value = current;
-      } catch (e) {
-        ok = false;
-      }
-      if (!ok && el.value !== current) {
-        try {
-          const proto = tag === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-          const desc = Object.getOwnPropertyDescriptor(proto, "value");
-          if (desc && desc.set) desc.set.call(el, current);
-        } catch (e) {}
-      }
+      // React 등은 일반 대입을 내부 상태에 반영하지 않으므로 항상 네이티브 setter를 사용한다.
+      nativeSet(el, current);
       try {
         el.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" }));
       } catch (e) {
@@ -193,6 +201,14 @@
           try {
             setNativeValue(el, f.value);
             fixCount++;
+            if (fixCount <= 5 || fixCount % 10 === 0) {
+              sendDiag({
+                step: "re_fill",
+                target: (f.selector || f.labelText || "").slice(0, 28),
+                now: String(el.value).slice(0, 20),
+                want: String(f.value).slice(0, 20),
+              });
+            }
           } catch (e) {}
         }
       }
