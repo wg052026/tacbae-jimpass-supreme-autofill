@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KREAM 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.3.0
+// @version      1.4.0
 // @description  롯데글로벌로지스 KREAM 택배예약(방문/편의점) 발송인·물품정보 자동입력
 // @author       wg052026
 // @match        https://www.lotteglogis.com/home/reservation/kream/*
@@ -199,6 +199,34 @@
     return true;
   }
 
+  // 페이지가 띄우는 alert()를 잠시 가로채서 자동으로 넘긴다.
+  const origAlert = pageWin.alert;
+  let capturedAlerts = [];
+
+  function startSuppressAlerts() {
+    capturedAlerts = [];
+    try {
+      pageWin.alert = function (msg) {
+        capturedAlerts.push(String(msg == null ? "" : msg));
+      };
+    } catch (e) {}
+  }
+
+  function stopSuppressAlerts() {
+    try {
+      pageWin.alert = origAlert;
+    } catch (e) {}
+    return capturedAlerts.slice();
+  }
+
+  function showAlert(msg) {
+    try {
+      origAlert.call(pageWin, msg);
+    } catch (e) {
+      window.alert(msg);
+    }
+  }
+
   // javascript: 링크(예약가능확인, 요금계산)를 눌러 페이지 컨텍스트에서 실행시킨다.
   function clickJsLink(fnName) {
     const a = document.querySelector('a[href*="' + fnName + '"]');
@@ -304,8 +332,15 @@
     await typeChar(byId(F.addr3), SENDER.addr3);
 
     // 예약가능확인 (페이지의 javascript: 링크를 클릭해 실행)
+    // "해당 지역은 서비스 가능 지역입니다." 같은 성공 알림은 자동으로 넘긴다.
+    startSuppressAlerts();
     clickJsLink("fnCheckSenderPossible");
-    await sleep(700);
+    await sleep(1500);
+    const checkMsgs = stopSuppressAlerts();
+    const notOk = checkMsgs.filter((m) => !m.includes("가능"));
+    if (notOk.length) {
+      showAlert("[KREAM 자동입력] 예약가능확인 결과:\n" + notOk.join("\n"));
+    }
 
     const senderBtn = byId("btnSender");
     if (senderBtn) senderBtn.click();
