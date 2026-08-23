@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KREAM 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.2.0
+// @version      1.3.0
 // @description  롯데글로벌로지스 KREAM 택배예약(방문/편의점) 발송인·물품정보 자동입력
 // @author       wg052026
 // @match        https://www.lotteglogis.com/home/reservation/kream/*
@@ -9,6 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        unsafeWindow
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/kream-autofill.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/kream-autofill.user.js
 // ==/UserScript==
@@ -186,19 +187,62 @@
     }
   }
 
-  function callSetSenderAddress(found) {
-    if (!found || typeof window.setSenderAddress !== "function") return;
-    window.setSenderAddress({
-      ZIP_NO: found.ZIP_CD,
-      ROAD_ZIP_NO: found.BAS_AREA_CD,
-      CITY_DO: found.CITY_DO,
-      CITY_GUN_GU: found.CITY_GUN_GU,
-      C_RPN_TEL: found.C_RPN_TEL,
-      C_BRNSHP_CD: found.C_BRNSHP_CD,
-      C_BRNSHP_NM: found.C_BRNSHP_NM,
-      BAS_AREA_CD: found.BAS_AREA_CD,
-      BLD_MGR_NO: found.BLD_MGR_NO,
-    });
+  // 페이지 컨텍스트(unsafeWindow)에 접근 가능하면 그걸 쓰고, 아니면 window로 폴백
+  const pageWin = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+
+  function setVal(id, value) {
+    const el = byId(id);
+    if (!el) return false;
+    setNativeValue(el, value == null ? "" : String(value));
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  // javascript: 링크(예약가능확인, 요금계산)를 눌러 페이지 컨텍스트에서 실행시킨다.
+  function clickJsLink(fnName) {
+    const a = document.querySelector('a[href*="' + fnName + '"]');
+    if (a) {
+      a.click();
+      return true;
+    }
+    try {
+      if (typeof pageWin[fnName] === "function") {
+        pageWin[fnName]();
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // 우편번호 팝업을 열지 않고, 검색 API 결과로 주소 관련 필드를 직접 채운다.
+  // (Tampermonkey 샌드박스에서는 페이지의 setSenderAddress를 호출할 수 없어서 직접 채움)
+  function applySenderAddress(found, isForm) {
+    if (!found) return false;
+    const zip = String(found.ZIP_CD || "");
+    const bas = String(found.BAS_AREA_CD || "");
+
+    if (isForm) {
+      setVal("sFromPost1", zip.substring(0, 3));
+      setVal("sFromPost2", zip.substring(3, 6));
+      setVal("sFromAddr1", found.CITY_DO);
+      setVal("sFromAddr2", found.CITY_GUN_GU);
+      setVal("sPickBrnshp", found.C_BRNSHP_NM);
+      setVal("sPickBrnshpTel", found.C_RPN_TEL);
+      setVal("sPickBrnshpCd", found.C_BRNSHP_CD);
+    } else {
+      setVal("snper_zip_no1", bas.substring(0, 2));
+      setVal("snper_zip_no2", bas.substring(2, 5));
+      setVal("snper_addr1", found.CITY_DO);
+      setVal("snper_addr2", found.CITY_GUN_GU);
+    }
+
+    // 공통 API 파라미터
+    setVal("snperBldMgrNo", found.BLD_MGR_NO);
+    setVal("snperBasAreaCd", bas);
+    setVal("snperAdrSctCd", "R"); // 도로명 검색이므로 R
+    setVal("sFromPostShow1", bas); // 화면 표시용 (ROAD_ZIP_NO = BAS_AREA_CD)
+    return true;
   }
 
   function getFieldMap() {
@@ -245,15 +289,23 @@
     await typeChar(byId(F.tel2), SENDER.tel2);
     await typeChar(byId(F.tel3), SENDER.tel3);
 
+    const isForm = !!byId("sFromName");
     const found = await searchZip(SENDER.roadKeyword);
-    callSetSenderAddress(found);
+    if (!found) {
+      window.alert(
+        '[KREAM 자동입력] 주소 검색에 실패했습니다.\n검색어: "' +
+          SENDER.roadKeyword +
+          '"\n설정에서 도로명 주소 검색어를 확인해주세요. (예: 죽전로1길6-14)'
+      );
+    } else {
+      applySenderAddress(found, isForm);
+    }
     await sleep(300);
     await typeChar(byId(F.addr3), SENDER.addr3);
 
-    if (typeof window.fnCheckSenderPossible === "function") {
-      window.fnCheckSenderPossible();
-      await sleep(500);
-    }
+    // 예약가능확인 (페이지의 javascript: 링크를 클릭해 실행)
+    clickJsLink("fnCheckSenderPossible");
+    await sleep(700);
 
     const senderBtn = byId("btnSender");
     if (senderBtn) senderBtn.click();
@@ -266,9 +318,8 @@
     await typeChar(byId(F.goodsValue), SENDER.goodsValue);
     await typeChar(byId(F.goodsNumber), SENDER.goodsNumber);
 
-    if (typeof window.CalFare === "function") {
-      window.CalFare();
-    }
+    // 요금계산 (페이지의 javascript: 링크를 클릭해 실행)
+    clickJsLink("CalFare");
     // 최종 제출(#btnSubmit)은 자동으로 누르지 않음 — 사용자가 직접 확인 후 클릭
   }
 
