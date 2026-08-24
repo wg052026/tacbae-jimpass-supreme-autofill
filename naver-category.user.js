@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         네이버쇼핑 카테고리 자동 조회
 // @namespace    https://github.com/wg052026
-// @version      1.3.0
+// @version      1.4.0
 // @description  우편함에 쌓인 검색어를 네이버쇼핑에서 조회해 카테고리 경로/코드를 되돌려준다. Claude가 상품 등록 엑셀에 쓴다.
 // @author       wg052026
 // @match        https://shopping.naver.com/*
@@ -82,12 +82,29 @@
         if (el) {
             try {
                 const j = JSON.parse(el.textContent);
-                const stack = [j]; 
+                // [v1.4.0] 예전엔 "카테고리가 있는 첫 상품"을 집었는데, 그게 검색어와
+                // 다른 상품이라 엉뚱한 카테고리를 가져온 적이 있다(폴로 → 니트>풀오버).
+                // **검색어 단어가 가장 많이 겹치는 상품**을 고른다.
+                const cands = [];
+                const stack = [j];
                 while (stack.length) {
                     const o = stack.pop();
                     if (!o || typeof o !== 'object') continue;
-                    if (o.category1Name && (o.productTitle || o.productName)) return o;
+                    if (o.category1Name && (o.productTitle || o.productName)) cands.push(o);
                     for (const k in o) stack.push(o[k]);
+                }
+                if (cands.length) {
+                    const q = (new URLSearchParams(location.search).get('query') || '')
+                              .replace(/[^가-힣A-Za-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 1);
+                    const score = o => {
+                        const t = String(o.productTitle || o.productName || '')
+                                  .replace(/<[^>]+>/g, '').toLowerCase();
+                        return q.reduce((n, w) => n + (t.includes(w.toLowerCase()) ? 1 : 0), 0);
+                    };
+                    cands.sort((a, b) => score(b) - score(a));
+                    const best = cands[0];
+                    best._매칭점수 = `${score(best)}/${q.length}`;
+                    return best;
                 }
             } catch (e) {}
         }
@@ -115,6 +132,7 @@
             코드들: { c1: p.category1Id || '', c2: p.category2Id || '',
                      c3: p.category3Id || '', c4: p.category4Id || '' },
             최저가: p.lowPrice || '',
+            검색어일치: p._매칭점수 || '',
             조회시각: new Date().toISOString()
         };
     }
@@ -198,7 +216,7 @@
     }
 
     async function run(manual) {
-        say('카테고리 조회기 v1.3.0 — 확인 중…', '#357');
+        say('카테고리 조회기 v1.4.0 — 확인 중…', '#357');
         if (!GM_getValue(K_TOKEN, '')) {
             say('깃허브 토큰이 없습니다.\nTampermonkey 아이콘 > 깃허브 토큰 설정 에서 넣어 주세요.', '#a33');
             return;
