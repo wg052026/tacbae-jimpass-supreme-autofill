@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         네이버카페 후기 URL 자동 수집
 // @namespace    https://github.com/wg052026
-// @version      1.0.0
+// @version      1.1.0
 // @description  카페에 글을 올리면 그 주소를 우편함에 자동으로 담는다. Claude in Chrome 이 등록하면 옆에서 주워 담는 용도.
 // @author       wg052026
 // @match        https://cafe.naver.com/*
@@ -141,11 +141,31 @@
         return false;
     }
 
+    // [v1.1.0] 토큰이 없을 때 조용히 끝내지 않는다 — 화면에 **버튼**을 띄운다.
+    // Tampermonkey 메뉴가 안 보이는 경우가 있어(실측) 메뉴에만 기대면 손을 못 댄다.
+    function askToken() {
+        if (box) box.remove();
+        box = document.createElement('div');
+        box.style.cssText =
+            'position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:400px;' +
+            'padding:14px 16px;border-radius:8px;font:14px/1.6 "맑은 고딕",sans-serif;' +
+            'color:#fff;background:#a33;box-shadow:0 4px 16px rgba(0,0,0,.35)';
+        box.innerHTML = '<div style="margin-bottom:10px">카페 후기 링크 수집기 v1.1.0<br>' +
+                        '깃허브 토큰이 필요합니다.</div>';
+        const btn = document.createElement('button');
+        btn.textContent = '토큰 넣기';
+        btn.style.cssText = 'padding:6px 14px;border:0;border-radius:5px;cursor:pointer;' +
+                            'font:14px "맑은 고딕",sans-serif;background:#fff;color:#a33';
+        btn.onclick = () => {
+            const v = prompt('kream-tools 저장소에 쓸 수 있는 깃허브 토큰', GM_getValue(K_TOKEN, ''));
+            if (v && v.trim()) { GM_setValue(K_TOKEN, v.trim()); box.remove(); box = null; run(true); }
+        };
+        box.appendChild(btn);
+        document.body.appendChild(box);
+    }
+
     async function run(manual) {
-        if (!GM_getValue(K_TOKEN, '')) {
-            if (manual) say('깃허브 토큰이 없습니다.\nTampermonkey 아이콘 > 깃허브 토큰 설정', '#a33');
-            return;
-        }
+        if (!GM_getValue(K_TOKEN, '')) { askToken(); return; }
         const a = readArticle();
         if (!a) { if (manual) say('이 화면은 글 상세가 아닙니다.', '#555'); return; }
         const ok = await save(a, manual);
