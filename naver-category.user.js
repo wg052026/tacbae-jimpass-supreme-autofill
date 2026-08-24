@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         네이버쇼핑 카테고리 자동 조회
 // @namespace    https://github.com/wg052026
-// @version      1.0.1
+// @version      1.1.0
 // @description  우편함에 쌓인 검색어를 네이버쇼핑에서 조회해 카테고리 경로/코드를 되돌려준다. Claude가 상품 등록 엑셀에 쓴다.
 // @author       wg052026
+// @match        https://shopping.naver.com/*
 // @match        https://search.shopping.naver.com/*
 // @match        https://msearch.shopping.naver.com/*
+// @match        https://m.shopping.naver.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
