@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         네이버쇼핑 카테고리 자동 조회
 // @namespace    https://github.com/wg052026
-// @version      1.4.0
+// @version      1.5.0
 // @description  우편함에 쌓인 검색어를 네이버쇼핑에서 조회해 카테고리 경로/코드를 되돌려준다. Claude가 상품 등록 엑셀에 쓴다.
 // @author       wg052026
 // @match        https://shopping.naver.com/*
@@ -148,12 +148,25 @@
 
     async function saveResult(out) {
         const [gs, gt] = await gh('GET', RES);
-        let sha = null;
-        if (gs === 200) { try { sha = JSON.parse(gt).sha; } catch (e) {} }
+        let sha = null, old = [];
+        if (gs === 200) {
+            try {
+                const j = JSON.parse(gt);
+                sha = j.sha;
+                old = JSON.parse(unb64(j.content)).결과 || [];
+            } catch (e) {}
+        }
+        // [v1.5.0 사장님 지시] **덮어쓰지 말고 쌓는다.** 검색어를 열쇠로 같은 것만 갱신하고
+        // 나머지는 남긴다. 그래야 우편함이 카테고리 사전처럼 쌓여, 나중에 도착했을 때
+        // 다시 조회하지 않고 바로 꺼내 쓸 수 있다.
+        const map = new Map(old.map(x => [x.검색어, x]));
+        out.forEach(r => map.set(r.검색어, r));
+        const merged = [...map.values()];
+
         const payload = {
-            message: `네이버 카테고리 ${out.length}건 (${new Date().toLocaleString('ko-KR')})`,
+            message: `네이버 카테고리 ${out.length}건 갱신 (누적 ${merged.length}) ${new Date().toLocaleString('ko-KR')}`,
             content: b64(JSON.stringify({
-                갱신시각: new Date().toISOString(), 건수: out.length, 결과: out
+                갱신시각: new Date().toISOString(), 건수: merged.length, 결과: merged
             }, null, 2)),
             branch: 'main'
         };
@@ -205,7 +218,7 @@
             const ps = await saveResult(stt.done);
             GM_setValue(K_STATE, null);
             if (ps === 200 || ps === 201) {
-                say('올렸습니다 — ' + stt.done.length + '건\n' +
+                say('올렸습니다 — ' + stt.done.length + '건 (우편함에 누적)\n' +
                     stt.done.map(r => `· ${r.검색어}\n   ${r.카테고리경로 || r.결과} ${r.카테고리코드 || ''}`).join('\n'),
                     '#2a6');
             } else {
@@ -216,7 +229,7 @@
     }
 
     async function run(manual) {
-        say('카테고리 조회기 v1.4.0 — 확인 중…', '#357');
+        say('카테고리 조회기 v1.5.0 — 확인 중…', '#357');
         if (!GM_getValue(K_TOKEN, '')) {
             say('깃허브 토큰이 없습니다.\nTampermonkey 아이콘 > 깃허브 토큰 설정 에서 넣어 주세요.', '#a33');
             return;
