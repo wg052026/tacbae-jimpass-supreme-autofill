@@ -1,16 +1,18 @@
 // ==UserScript==
 // @name         네이버카페 후기 URL 자동 수집
 // @namespace    https://github.com/wg052026
-// @version      1.1.0
+// @version      1.2.0
 // @description  카페에 글을 올리면 그 주소를 우편함에 자동으로 담는다. Claude in Chrome 이 등록하면 옆에서 주워 담는 용도.
 // @author       wg052026
-// @match        https://cafe.naver.com/*
+// @match        *://cafe.naver.com/*
+// @match        *://m.cafe.naver.com/*
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
-// @run-at       document-idle
+// @run-at       document-start
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/cafe-url-collector.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/cafe-url-collector.user.js
 // ==/UserScript==
@@ -179,10 +181,18 @@
     });
     GM_registerMenuCommand('이 글 링크 담기', () => run(true));
 
-    // 카페는 화면 전환이 잦아 주소가 바뀌면 다시 본다
-    let last = '';
-    setInterval(() => {
-        if (location.href !== last) { last = location.href; setTimeout(() => run(false), 2500); }
-    }, 1500);
-    setTimeout(() => run(false), 2500);
+    // [v1.2.0] **실행되자마자 무조건 한 줄 띄운다.**
+    // v1.1.0 까지는 조건이 안 맞으면 아무것도 안 떠서, 스크립트가 도는지조차 알 수 없었다
+    // (실측 — 사장님이 "안 뜬다"고 하셨는데 실행 여부를 가릴 방법이 없었다).
+    function boot() {
+        if (!document.body) { setTimeout(boot, 300); return; }
+        say('카페 링크 수집기 v1.2.0 — 확인 중…', '#357');
+        setTimeout(() => run(false), 2000);
+        // 카페는 화면 전환이 잦아 주소가 바뀌면 다시 본다
+        let last = location.href;
+        setInterval(() => {
+            if (location.href !== last) { last = location.href; setTimeout(() => run(false), 2500); }
+        }, 1500);
+    }
+    boot();
 })();
