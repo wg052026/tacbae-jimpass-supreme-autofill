@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         네이버쇼핑 카테고리 자동 조회
 // @namespace    https://github.com/wg052026
-// @version      1.1.0
+// @version      1.2.0
 // @description  우편함에 쌓인 검색어를 네이버쇼핑에서 조회해 카테고리 경로/코드를 되돌려준다. Claude가 상품 등록 엑셀에 쓴다.
 // @author       wg052026
 // @match        https://shopping.naver.com/*
@@ -106,7 +106,7 @@
 
     // ---------- 실행 ----------
     async function run(manual) {
-        say('카테고리 조회기 v1.0.1 — 확인 중…', '#357');
+        say('카테고리 조회기 v1.2.0 — 확인 중…', '#357');
         if (!GM_getValue(K_TOKEN, '')) {
             say('깃허브 토큰이 없습니다.\nTampermonkey 아이콘 > 깃허브 토큰 설정 에서 넣어 주세요.', '#a33');
             return;
@@ -189,5 +189,24 @@
         catch (e) { say('실패 — ' + e.message, '#a33'); }
     });
 
-    setTimeout(() => run(false), 2000);
+    // [v1.2.0] CORS — 검색 API는 search.shopping.naver.com 것이라 다른 도메인에서 부르면
+    // "Failed to fetch"가 난다(v1.1.0 실측). 같은 도메인이 아니면 그쪽으로 옮겨서 실행한다.
+    const ON_SEARCH = location.hostname === 'search.shopping.naver.com';
+
+    async function boot() {
+        if (ON_SEARCH) { run(false); return; }
+        if (!GM_getValue(K_TOKEN, '')) return;             // 토큰 없으면 조용히 넘어감
+        const [st, txt] = await gh('GET', REQ);
+        if (st !== 200) return;
+        let n = 0;
+        try { n = (JSON.parse(unb64(JSON.parse(txt).content)).검색어 || []).length; } catch (e) {}
+        if (!n) return;
+        say(`조회할 것 ${n}건이 있습니다.\n검색 페이지로 옮겨서 처리합니다…`, '#357');
+        setTimeout(() => {
+            location.href = 'https://search.shopping.naver.com/search/all?query=' +
+                            encodeURIComponent('카테고리조회');
+        }, 1500);
+    }
+
+    setTimeout(boot, 2000);
 })();
