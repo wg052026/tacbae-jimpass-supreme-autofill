@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         네이버쇼핑 카테고리 자동 조회
 // @namespace    https://github.com/wg052026
-// @version      1.0.0
+// @version      1.0.1
 // @description  우편함에 쌓인 검색어를 네이버쇼핑에서 조회해 카테고리 경로/코드를 되돌려준다. Claude가 상품 등록 엑셀에 쓴다.
 // @author       wg052026
 // @match        https://search.shopping.naver.com/*
@@ -104,19 +104,28 @@
 
     // ---------- 실행 ----------
     async function run(manual) {
+        say('카테고리 조회기 v1.0.1 — 확인 중…', '#357');
         if (!GM_getValue(K_TOKEN, '')) {
-            if (manual) say('깃허브 토큰이 없습니다.\nTampermonkey 메뉴 > 깃허브 토큰 설정', '#a33');
+            say('깃허브 토큰이 없습니다.\nTampermonkey 아이콘 > 깃허브 토큰 설정 에서 넣어 주세요.', '#a33');
             return;
         }
         const [st, txt] = await gh('GET', REQ);
-        if (st !== 200) { if (manual) say('요청이 없습니다 (우편함 비어 있음)', '#555'); return; }
+        if (st !== 200) {
+            say(`우편함을 못 읽었습니다 (status=${st})\n토큰 권한이나 파일 경로를 확인해 주세요.\n` +
+                'mailbox/naver/요청.json', '#a33');
+            return;
+        }
 
         let req;
         try { req = JSON.parse(unb64(JSON.parse(txt).content)); }
         catch (e) { say('요청 파일을 못 읽었습니다', '#a33'); return; }
 
         const todo = (req.검색어 || []).filter(k => k && k.trim());
-        if (!todo.length) { if (manual) say('처리할 검색어가 없습니다', '#555'); return; }
+        if (!todo.length) {
+            say('처리할 검색어가 없습니다 — 요청 우편함이 비어 있습니다.', '#555');
+            setTimeout(() => box && box.remove(), 5000);
+            return;
+        }
 
         say(`카테고리 조회 시작 — ${todo.length}건`, '#357');
         const out = [];
