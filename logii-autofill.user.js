@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.4.0
+// @version      1.5.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -12,6 +12,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
+// @connect      api.github.com
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/logii-autofill.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/logii-autofill.user.js
 // ==/UserScript==
@@ -34,6 +35,14 @@
   // 개인정보는 코드에 넣지 않는다(저장소가 Public). 전부 GM_setValue 로 이 브라우저에만 둔다.
   // ─────────────────────────────────────────────────────────────
 
+  // ── 저장소에서 「보낼 것」을 받아 온다 ──────────────────────────
+  // [사장님 지시 2026-08-29] **박스는 클로드가 만들어 두고 사장님은 누르기만.**
+  // 받는사람 주소는 **Private 저장소**에만 둔다 — 이 스크립트가 있는 공개 저장소에는
+  // 아무것도 안 적는다. 토큰은 브라우저에만 저장한다(네이버 카테고리 스크립트와 같은 길).
+  const 저장소 = "wg052026/kream-tools";
+  const 목록길 = "mailbox/logii/보낼것.json";
+  const TOKEN_KEY = "gh_token";
+
   const CFG_KEY = "logii_cfg";
   const cfg = Object.assign({ 자동진행: true, 택배사: "eleven", 박스: [] },
                             GM_getValue(CFG_KEY, {}) || {});
@@ -49,9 +58,30 @@
     주소: "서울특별시 양천구  목동동로 363(목동)",   // 시군구와 도로명 사이 공백 두 칸
     상세: "솔드아웃", 물품명: "", 물품가액: "",
   };
+  let 저장소박스 = [];
   function 박스들() {
+    const 쓴 = new Set(cfg.쓴것 || []);
+    const 밖 = 저장소박스.filter((b) => !쓴.has(b.라벨));
     const 남 = (cfg.박스 || []).filter((b) => !b.붙박이);
-    return [솔드아웃].concat(남);
+    return [솔드아웃].concat(밖, 남);
+  }
+
+  function 토큰() { return GM_getValue(TOKEN_KEY, "") || ""; }
+  async function 저장소에서받기() {
+    const tok = 토큰();
+    if (!tok) return { 오류: "토큰이 없습니다 — Tampermonkey 메뉴에서 넣어 주십시오" };
+    const url = "https://api.github.com/repos/" + 저장소 + "/contents/" +
+                encodeURIComponent(목록길).replace(/%2F/g, "/");
+    try {
+      const r = await fetch(url, {
+        headers: { Authorization: "Bearer " + tok, Accept: "application/vnd.github.raw" },
+      });
+      if (!r.ok) return { 오류: "저장소를 못 읽었습니다 (" + r.status + ")" };
+      const j = JSON.parse(await r.text());
+      return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "" };
+    } catch (e) {
+      return { 오류: "저장소를 못 읽었습니다: " + e.message };
+    }
   }
 
   // [사장님 지시 2026-08-29] **적용해서 끝까지 가면 알아서 지운다.**
@@ -72,6 +102,8 @@
       이번에적용 = [];
       cfg.지운것 = (지울것.map((b) => b)).concat(cfg.지운것 || []).slice(0, 10);
       cfg.박스 = (cfg.박스 || []).filter((b) => !지울것.includes(b));
+      // 저장소에서 받아 온 것은 여기서 못 지우니 **쓴 것으로 적어 두고 감춘다**
+      cfg.쓴것 = (cfg.쓴것 || []).concat(지울것.map((b) => b.라벨).filter(Boolean)).slice(-50);
       저장();
       setTimeout(() => { try { 그리기(); } catch (x) {} }, 300);
     }, true);
@@ -229,7 +261,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.4.0";
+    t.textContent = "로지아이 자동입력 v1.5.0";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
@@ -273,11 +305,26 @@
       p.appendChild(card);
     });
 
+    // ── 저장소에서 다시 받기 ──
+    p.appendChild((() => {
+      const d = document.createElement("div");
+      d.style.cssText = "display:flex;gap:6px;margin:2px 0 8px;";
+      d.appendChild(단추("↻ 저장소에서 다시 받기", "#2f4a5d", async () => {
+        알림("받는 중…");
+        const r = await 저장소에서받기();
+        if (r.오류) { 알림(r.오류, "#f88"); return; }
+        저장소박스 = r.목 || [];
+        그리기();
+        알림("보낼 것 " + 저장소박스.length + "건" + (r.때 ? " (" + r.때 + ")" : ""), "#8d8");
+      }, "1"));
+      return d;
+    })());
+
     // ── 새 박스 만들기 ──
     const 접 = document.createElement("details");
     접.style.cssText = "margin-top:4px;";
     const 머리 = document.createElement("summary");
-    머리.textContent = "＋ 보낼 곳 새로 만들기";
+    머리.textContent = "＋ 손으로 새로 만들기 (평소에는 안 씁니다)";
     머리.style.cssText = "cursor:pointer;font-size:11px;color:#9ad;padding:4px 0;";
     접.appendChild(머리);
 
@@ -369,6 +416,14 @@
   if (typeof GM_registerMenuCommand === "function") {
     GM_registerMenuCommand(cfg.자동진행 ? "자동 진행 끄기" : "자동 진행 켜기",
       () => { cfg.자동진행 = !cfg.자동진행; 저장(); location.reload(); });
+    GM_registerMenuCommand("깃허브 토큰 넣기 (보낼 곳 목록 받기용)", () => {
+      const v = window.prompt(
+        "깃허브 토큰을 넣어 주십시오. 이 브라우저에만 저장되고 저장소에는 안 올라갑니다.", "");
+      if (v && v.trim()) { GM_setValue(TOKEN_KEY, v.trim()); location.reload(); }
+    });
+    GM_registerMenuCommand("쓴 박스 다시 보이게", () => {
+      cfg.쓴것 = []; 저장(); location.reload();
+    });
   }
 
   function 시작() {
@@ -376,7 +431,15 @@
     if (받는사람화면()) 다음단추감시();
     if (메인화면()) 메인자동();
     else if (편의점화면()) 편의점자동();
-    else if (받는사람화면()) 알림("보낼 곳을 고르고 「적용」 을 누르십시오");
+    else if (받는사람화면()) {
+      알림("보낼 곳을 받는 중…");
+      저장소에서받기().then((r) => {
+        if (r.오류) { 알림(r.오류, "#fc8"); return; }
+        저장소박스 = r.목 || [];
+        그리기();
+        알림("보낼 곳 " + 저장소박스.length + "건 — 고르고 「적용」", "#8d8");
+      });
+    }
   }
   if (document.readyState === "complete" || document.readyState === "interactive") setTimeout(시작, 500);
   else document.addEventListener("DOMContentLoaded", () => setTimeout(시작, 500));
