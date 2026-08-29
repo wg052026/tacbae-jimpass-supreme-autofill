@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.6.2
+// @version      1.7.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -245,6 +245,46 @@
     return String(n);
   }
 
+  // ── 주소는 **팝업으로 골라야** 로지아이가 받아 준다 ─────────────
+  // [사장님 지적 2026-08-29] 「배송주소를 여기서 검색해서 입력하지 않으면 안 되는 것 같음」
+  // 실측 — 같은 검색을 예약 화면에서 몰래 물어보면 **빈손**이 오는 주소가 있다
+  //        (목동중앙남로). 팝업 창 안에서 물어보면 제대로 나온다.
+  // → 팝업을 열고 **검색어까지 넣어** 드린다. 사장님은 결과 한 줄만 누르시면 된다.
+  function 검색어만들기(주소) {
+    const t = String(주소 || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+    const w = t.split(" ").filter(Boolean);
+    return w.length >= 2 ? w.slice(-2).join(" ") : t;      // 도로명 + 번지
+  }
+  function 주소팝업(x, i) {
+    const 창 = window.open(
+      "/Reservation/PopReserveZipRoadCvsNet.pm?fname=RegiForm&gbn=R&comp_code=" +
+      encodeURIComponent(cfg.택배사) + "&sub_comp_code=",
+      "logii_zip", "width=780,height=660,scrollbars=yes");
+    if (!창) { 알림("주소 창이 막혔습니다 — 팝업 허용을 켜 주십시오", "#f88"); return; }
+    const 검 = 검색어만들기(x.주소);
+    let n = 0, 넣음 = false;
+    const t = setInterval(() => {
+      n += 1;
+      try {
+        if (창.closed) {
+          clearInterval(t);
+          // 팝업이 채우고 닫힌 뒤에 **상세주소**를 넣는다(팝업은 상세를 안 채운다)
+          if (x.상세) 넣기("r_addr2", x.상세, i);
+          알림("주소가 들어갔습니다 — 물품과 약관을 보시고 다음단계로", "#8d8");
+          return;
+        }
+        const f = 창.document && 창.document.boardForm;
+        if (f && !넣음) {
+          넣음 = true;
+          f.search_word.value = 검;
+          f.submit();
+        }
+      } catch (e) {}
+      if (n > 240) clearInterval(t);
+    }, 250);
+    알림("주소 창에서 「" + 검 + "」 를 찾았습니다 — 맞는 줄을 눌러 주십시오");
+  }
+
   function 빈줄찾기() {
     const 들 = document.getElementsByName("r_name");
     for (let i = 0; i < 들.length; i++) if (!들[i].value.trim()) return i;
@@ -305,7 +345,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.6.2";
+    t.textContent = "로지아이 자동입력 v1.7.0";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
@@ -336,6 +376,7 @@
       줄.appendChild(단추("적용", "#2f7d3c", () => {
         const i = 빈줄찾기();
         const 만 = 채우기(b, i);
+        주소팝업(b, i);        // 주소는 팝업으로 골라야 로지아이가 받아 준다
         if (!b.붙박이 && !이번에적용.includes(b)) 이번에적용.push(b);
         알림(`${i + 1}번째 받는 분에 넣었습니다` + (만 ? ` · 물품가액 ${만}만원` : "") +
              (b.붙박이 ? "" : " · 다음단계로 가면 이 박스는 지워집니다"), "#8d8");
