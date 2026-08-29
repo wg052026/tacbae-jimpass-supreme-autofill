@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.5.1
+// @version      1.6.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -107,6 +107,28 @@
       저장();
       setTimeout(() => { try { 그리기(); } catch (x) {} }, 300);
     }, true);
+  }
+
+  // ── 약관 팝업 : 「다음단계」 뒤에 뜨는 것을 대신 눌러 준다 ──────
+  // [사장님 지시 2026-08-29] 전체 약관 동의와 확인까지 눌러 달라 하셨다.
+  // 실측 — 팝업 #comm_agree_div · 전체동의 #termsServiceAgreeAll
+  //        (낱개는 termsServiceAgree1~4) · 확인 A#click_agree_ahref
+  // 타이머는 **한 번만** 건다(예전에 setInterval 을 겹쳐 걸어 값이 왔다갔다 한 적이 있다).
+  function 약관감시() {
+    if (window.__logii_terms) return;
+    window.__logii_terms = setInterval(() => {
+      try {
+        const 팝 = document.getElementById("comm_agree_div");
+        if (!팝 || !팝.offsetParent) return;          // 안 떠 있으면 지나간다
+        const 전체 = document.getElementById("termsServiceAgreeAll");
+        if (전체 && !전체.checked) { 전체.click(); return; }   // 한 바퀴 쉬고 확인을 누른다
+        const 확인 = document.getElementById("click_agree_ahref");
+        if (확인) {
+          확인.click();
+          알림("전체 약관에 동의하고 확인을 눌렀습니다", "#8d8");
+        }
+      } catch (e) {}
+    }, 500);
   }
 
   let 상태줄 = null;
@@ -263,7 +285,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.5.1";
+    t.textContent = "로지아이 자동입력 v1.6.0";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
@@ -434,6 +456,7 @@
     if (메인화면()) 메인자동();
     else if (편의점화면()) 편의점자동();
     else if (받는사람화면()) {
+      약관감시();
       알림("보낼 곳을 받는 중…");
       저장소에서받기().then((r) => {
         if (r.오류) { 알림(r.오류, "#fc8"); return; }
