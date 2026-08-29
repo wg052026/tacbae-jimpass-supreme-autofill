@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.7.0
+// @version      1.8.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -140,12 +140,12 @@
           }
           return;                                  // 한 바퀴 쉬고 확인을 누른다
         }
-        // [사장님 지시 2026-08-29] **체크만 하고 확인은 누르지 않는다.**
-        // 확인 단추가 곧 다음 화면으로 넘어가는 단추라, 눌러 버리면 사장님이
-        // 내용을 못 보신 채 한 칸 더 가 버린다.
-        if (!window.__logii_terms_said) {
-          window.__logii_terms_said = true;
-          알림("전체 약관에 체크했습니다 — 확인은 눌러 주십시오", "#8d8");
+        // [사장님 지시 2026-08-29 · 다시 바뀜] 주소를 고르면 다음단계까지,
+        // 약관이 뜨면 확인까지 **한 번에** 가게 한다.
+        const 확인 = document.getElementById("click_agree_ahref");
+        if (확인) {
+          확인.click();
+          알림("전체 약관에 동의하고 확인을 눌렀습니다", "#8d8");
         }
       } catch (e) {}
     }, 500);
@@ -270,7 +270,11 @@
           clearInterval(t);
           // 팝업이 채우고 닫힌 뒤에 **상세주소**를 넣는다(팝업은 상세를 안 채운다)
           if (x.상세) 넣기("r_addr2", x.상세, i);
-          알림("주소가 들어갔습니다 — 물품과 약관을 보시고 다음단계로", "#8d8");
+          알림("주소가 들어갔습니다 — 다음단계로 넘어갑니다", "#8d8");
+          // [사장님 지시 2026-08-29] 주소를 고르면 **다음단계까지 바로** 간다.
+          setTimeout(() => {
+            if (!다음단계누르기()) 알림("다음단계 단추를 못 찾았습니다 — 눌러 주십시오", "#f88");
+          }, 900);
           return;
         }
         const f = 창.document && 창.document.boardForm;
@@ -283,6 +287,17 @@
       if (n > 240) clearInterval(t);
     }, 250);
     알림("주소 창에서 「" + 검 + "」 를 찾았습니다 — 맞는 줄을 눌러 주십시오");
+  }
+
+  function 다음단계누르기() {
+    const b = [...document.querySelectorAll("[onclick],button,a")].find(
+      (e) => /GoNext/.test((e.getAttribute && e.getAttribute("onclick")) || "") ||
+             (e.innerText || "").trim() === "다음단계");
+    if (b) { b.click(); return true; }
+    try {
+      if (typeof 페이지.GoNext === "function") { 페이지.GoNext(); return true; }
+    } catch (e) {}
+    return false;
   }
 
   function 빈줄찾기() {
@@ -345,7 +360,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.7.0";
+    t.textContent = "로지아이 자동입력 v1.8.0";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
