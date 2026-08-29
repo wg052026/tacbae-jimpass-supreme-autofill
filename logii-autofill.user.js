@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.6.0
+// @version      1.6.1
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -119,9 +119,27 @@
     window.__logii_terms = setInterval(() => {
       try {
         const 팝 = document.getElementById("comm_agree_div");
-        if (!팝 || !팝.offsetParent) return;          // 안 떠 있으면 지나간다
+        if (!팝) return;
+        // [사고 2026-08-29] 처음에 `offsetParent` 로 「떠 있나」를 봤는데
+        // 이 팝업은 **`position: fixed`** 라 offsetParent 가 **늘 null** 이다.
+        // 그래서 떠 있어도 언제나 건너뛰었다. → **display 로 본다.**
+        const 보임 = getComputedStyle(팝).display !== "none" &&
+                     팝.getBoundingClientRect().width > 0;
+        if (!보임) return;
         const 전체 = document.getElementById("termsServiceAgreeAll");
-        if (전체 && !전체.checked) { 전체.click(); return; }   // 한 바퀴 쉬고 확인을 누른다
+        if (전체 && !전체.checked) {
+          전체.click();
+          if (!전체.checked) {                     // 꾸민 체크박스면 라벨을 눌러야 한다
+            const 라 = document.querySelector('label[for="termsServiceAgreeAll"]');
+            if (라) 라.click();
+          }
+          if (!전체.checked) {                     // 그래도 안 되면 값으로 넣고 알린다
+            전체.checked = true;
+            전체.dispatchEvent(new Event("click", { bubbles: true }));
+            전체.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          return;                                  // 한 바퀴 쉬고 확인을 누른다
+        }
         const 확인 = document.getElementById("click_agree_ahref");
         if (확인) {
           확인.click();
@@ -285,7 +303,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.6.0";
+    t.textContent = "로지아이 자동입력 v1.6.1";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
