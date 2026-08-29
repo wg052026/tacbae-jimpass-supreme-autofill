@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.6.1
+// @version      1.6.2
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -140,10 +140,12 @@
           }
           return;                                  // 한 바퀴 쉬고 확인을 누른다
         }
-        const 확인 = document.getElementById("click_agree_ahref");
-        if (확인) {
-          확인.click();
-          알림("전체 약관에 동의하고 확인을 눌렀습니다", "#8d8");
+        // [사장님 지시 2026-08-29] **체크만 하고 확인은 누르지 않는다.**
+        // 확인 단추가 곧 다음 화면으로 넘어가는 단추라, 눌러 버리면 사장님이
+        // 내용을 못 보신 채 한 칸 더 가 버린다.
+        if (!window.__logii_terms_said) {
+          window.__logii_terms_said = true;
+          알림("전체 약관에 체크했습니다 — 확인은 눌러 주십시오", "#8d8");
         }
       } catch (e) {}
     }, 500);
@@ -303,7 +305,7 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.6.1";
+    t.textContent = "로지아이 자동입력 v1.6.2";
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
