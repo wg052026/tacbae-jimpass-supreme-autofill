@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.2.0
+// @version      1.3.0
 // @description  구매처 상품 페이지에 들어가기만 하면 상품명·제품URL·이미지URL을 저절로 주워 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
 // @author       wg052026
 // @match        https://us.supreme.com/*
@@ -129,10 +129,57 @@
         return 값있나 && 담기;
     }
 
+    // ── 상품명 고르기 ───────────────────────────────────────────
+    // [고침 v1.3.0] 슈프림에서 `og:title` 이 **`Shop`** 으로 와서 상품명이
+    // 「Shop」으로 들어갔다(실측 2026-09-02). 그래서 여러 곳을 차례로 본다.
+    const 헛말 = /^(shop|home|store|products?|cart|search|menu|supreme|kapital)$/i;
+
+    function 쓸만한(x) {
+        const t = String(x || '').replace(/\s+/g, ' ').trim();
+        if (t.length < 4 || 헛말.test(t)) return '';
+        return t;
+    }
+
+    function 상품명찾기() {
+        // ① 상품 정보 표(JSON-LD) — Shopify 를 비롯해 대부분이 넣는다
+        for (const el of document.querySelectorAll('script[type="application/ld+json"]')) {
+            try {
+                let j = JSON.parse(el.textContent);
+                const 상자 = Array.isArray(j) ? j : (j['@graph'] ? j['@graph'] : [j]);
+                for (const o of 상자) {
+                    if (o && /product/i.test(String(o['@type'] || '')) && o.name) {
+                        const t = 쓸만한(o.name);
+                        if (t) return t;
+                    }
+                }
+            } catch (e) { }
+        }
+        // ② 화면의 큰 제목
+        for (const h of document.querySelectorAll('h1, h2[class*=title], [class*=product-title], [class*=productName]')) {
+            const t = 쓸만한(h.textContent);
+            if (t) return t;
+        }
+        // ③ og:title
+        const og = 쓸만한(메타('og:title'));
+        if (og) return og;
+        // ④ 창 제목에서 사이트 이름을 뗀다
+        const ti = 쓸만한(String(document.title).split(/[|｜–—]/)[0]);
+        if (ti) return ti;
+        // ⑤ 마지막으로 사진 파일 이름에서 (예: J86_FW26_CrossTrackJacket_Black01.jpg)
+        const im = 메타('og:image');
+        if (im) {
+            let n = im.split('/').pop().split('?')[0].replace(/\.(jpg|jpeg|png|webp|gif)$/i, '');
+            n = n.replace(/^[A-Z0-9]{2,4}_/i, '').replace(/_/g, ' ')
+                 .replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\s*\d+$/, '');
+            const t = 쓸만한(n);
+            if (t) return t;
+        }
+        return '';
+    }
+
     // ── 이 화면에서 주울 것 ─────────────────────────────────────
     function 줍기() {
-        const 이름 = 메타('og:title') || (document.querySelector('h1')?.textContent || '')
-            || document.title;
+        const 이름 = 상품명찾기();
         let 사진 = 메타('og:image');
         if (!사진) {
             // og:image 가 없으면 화면에서 가장 큰 사진을 고른다
@@ -147,6 +194,7 @@
         if (사진 && 사진.startsWith('//')) 사진 = location.protocol + 사진;
         return {
             상품명: String(이름).replace(/\s+/g, ' ').trim().slice(0, 160),
+            사진이름: (사진 || '').split('/').pop().split('?')[0],
             제품URL: location.href.split('?')[0].split('#')[0],
             이미지URL: (사진 || '').split('?')[0],
             집: location.hostname,
@@ -209,6 +257,10 @@
         const 줄 = 줍기();
         if (!줄.상품명 || !줄.이미지URL) {
             if (손으로) 알림('이 화면에서 상품명·사진을 못 찾았습니다.', 'no');
+            return;
+        }
+        if (헛말.test(줄.상품명)) {          // 「Shop」 같은 헛이름은 안 보낸다
+            if (손으로) 알림('상품명을 못 읽었습니다 — 화면이 다 그려진 뒤 다시 눌러 주십시오.', 'no');
             return;
         }
         const 본것 = GM_getValue(K_BON, []) || [];
