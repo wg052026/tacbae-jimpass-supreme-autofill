@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.5.0
-// @description  구매처 상품 페이지에 들어가기만 하면 상품명·제품URL·이미지URL을 저절로 주워 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
+// @version      1.6.0
+// @description  구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://us.supreme.com/*
 // @match        https://shop.supreme.com/*
@@ -65,6 +65,7 @@
     const PATH = 'mailbox/buy/상품주소.json';
     const K_TOKEN = 'gh_token';
     const K_BON = 'purl_본것';                        // 이미 올린 것(로컬)
+    const K_최근 = 'purl_최근본것';                    // 아직 주문번호가 안 붙은 상품들
     const K_AUTO = 'purl_자동';                       // 자동으로 주울까
 
     // ── 잔심부름 ────────────────────────────────────────────────
@@ -218,6 +219,63 @@
         };
     }
 
+    // ── 주문 완료 화면인가 · 주문번호는 무엇인가 ────────────────
+    //  [사장님 지적 2026-09-02] 「제품을 먼저 사고 그 뒤에 메일이 오는데
+    //   메일을 보고 제품 주소를 찾는 건 안 되지.」 — 맞다. 순서가 반대다.
+    //  주소는 **살 때** 쌓이고 메일은 **며칠 뒤** 온다. 둘을 잇는 열쇠는
+    //  **주문번호**다 — 결제 완료 화면과 발송 메일에 같은 번호가 찍힌다.
+    function 주문완료인가() {
+        if (/thank|complete|success|finish|order[-_]?(done|ok|complete)/i
+            .test(location.pathname + location.search)) return true;
+        const 글 = (document.body ? document.body.innerText : '').slice(0, 4000);
+        return /ご注文ありがとうございま|ご注文が完了|注文完了|thank you for your (order|purchase)|order (is )?confirmed|주문이? 완료/i
+            .test(글);
+    }
+
+    function 주문번호찾기() {
+        const 글 = document.body ? document.body.innerText : '';
+        let m = 글.match(/注文番号[\s:：\]\[]*([0-9A-Za-z\-]{4,})/);
+        if (m) return m[1];
+        m = 글.match(/(?:order|confirmation)\s*(?:number|no\.?|#|번호)?\s*[:#]?\s*([0-9]{8,})/i);
+        if (m) return m[1];
+        m = 글.match(/주문\s*번호\s*[:#]?\s*([0-9A-Za-z\-]{6,})/);
+        if (m) return m[1];
+        m = location.pathname.match(/\/orders?\/([0-9A-Za-z\-]{6,})/i);
+        if (m) return m[1];
+        return '';
+    }
+
+    // ── 아직 주문번호가 안 붙은 상품들 (브라우저에만 쌓인다) ────
+    function 담아두기(줄) {
+        const 옛 = GM_getValue(K_최근, []) || [];
+        const 표 = new Map(옛.map(x => [x.제품URL, x]));
+        표.set(줄.제품URL, 줄);
+        GM_setValue(K_최근, [...표.values()].slice(-30));
+    }
+
+    async function 주문묶기() {
+        const 번호 = 주문번호찾기();
+        if (!번호) return;
+        const 옛 = GM_getValue(K_최근, []) || [];
+        const 같은집 = 옛.filter(x => x.집 === location.hostname
+            || location.hostname.indexOf(String(x.집 || '').replace(/^www\./, '')) >= 0
+            || String(x.집 || '').indexOf(location.hostname.replace(/^www\./, '')) >= 0);
+        if (!같은집.length) return;
+        const 봉투 = GM_getValue('purl_묶은주문', []) || [];
+        if (봉투.includes(번호)) return;               // 이미 묶어 보낸 주문
+        알림(`주문 ${번호} 에 상품 ${같은집.length}건을 묶어 보냅니다…`);
+        const 답 = await 창구로({ 주문번호: 번호, 집: location.hostname, 건: 같은집 });
+        if (답 && 답.ok) {
+            GM_setValue('purl_묶은주문', [...봉투, 번호].slice(-200));
+            const 남 = 옛.filter(x => 같은집.indexOf(x) < 0);
+            GM_setValue(K_최근, 남);
+            알림(`주문 ${번호} · 상품 ${같은집.length}건을 메일지기에 넣었습니다.\n`
+                + '며칠 뒤 오는 발송 메일과 이 번호로 이어집니다.', 'ok');
+        } else {
+            알림('메일지기가 안 켜져 있습니다 — 켜신 뒤 이 화면을 새로고침해 주십시오.', 'no');
+        }
+    }
+
     // ── 먼저 컴퓨터의 메일지기에게 바로 준다 (토큰이 필요 없다) ──
     function 창구로(줄) {
         return new Promise(resolve => {
@@ -290,6 +348,7 @@
             return;
         }
         도는중 = true;
+        담아두기(줄);              // 결제할 때 주문번호와 묶으려고 쌓아 둔다
         알림('보내는 중…\n' + 줄.상품명.slice(0, 46));
         try {
             // ① 컴퓨터의 메일지기에게 바로 (토큰이 필요 없다)
@@ -328,6 +387,12 @@
         if (v !== null) { GM_setValue(K_TOKEN, v.trim()); alert('저장했습니다.'); }
     });
     GM_registerMenuCommand('이 상품 주소 지금 올리기', () => 한번(true));
+    GM_registerMenuCommand('이 주문에 상품 묶기', () => 주문묶기());
+    GM_registerMenuCommand('담아 둔 상품 보기', () => {
+        const 옛 = GM_getValue(K_최근, []) || [];
+        알림('아직 주문에 안 묶인 상품 ' + 옛.length + '건\n'
+            + 옛.slice(-6).map(x => '· ' + String(x.상품명).slice(0, 34)).join('\n'), 'ok');
+    });
     GM_registerMenuCommand(
         (GM_getValue(K_AUTO, true) ? '자동으로 줍기 : 켬' : '자동으로 줍기 : 끔'),
         () => {
@@ -349,6 +414,9 @@
             '상품 화면인가 : ' + (상품인가() ? '예' : '아니오'),
             '고른 이름 : ' + (줄.상품명 || '(못 찾음)').slice(0, 44),
             '주소 속 품번 : ' + (줄.품번 || '(없음)'),
+            '주문 완료 화면 : ' + (주문완료인가() ? '예' : '아니오')
+                + ' · 번호 ' + (주문번호찾기() || '(없음)'),
+            '담아 둔 상품 : ' + ((GM_getValue(K_최근, []) || []).length) + '건',
             '고른 사진 : ' + (줄.이미지URL ? '있음' : '(없음)'),
         ].join('\n');
         알림(글, 상품인가() ? 'ok' : 'no');
@@ -373,6 +441,12 @@
         시계 = setInterval(() => {
             센것 += 1;
             if (센것 > 30) { clearInterval(시계); 시계 = null; return; }   // 27초까지 기다린다
+            if (주문완료인가() && 주문번호찾기()) {
+                clearInterval(시계); 시계 = null;
+                마지막주소 = location.href;
+                주문묶기();
+                return;
+            }
             if (상품인가()) {
                 clearInterval(시계); 시계 = null;
                 마지막주소 = location.href;
