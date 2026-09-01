@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.9.0
+// @version      1.9.1
 // @description  크림 탭을 하나 열어 두면 못 찾은 물건을 스스로 검색해 찾아 줍는다. 구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://kream.co.kr/*
@@ -409,8 +409,11 @@
     }
 
     async function 순찰() {
-        if (!크림인가() || !GM_getValue(K_순찰, true)) return;
-        if (GM_getValue(K_AUTO, true) === false) return;
+        if (!크림인가()) return;
+        if (!GM_getValue(K_순찰, true)) { 알림('크림 순찰 : 꺼져 있습니다', 'no'); return; }
+        if (GM_getValue(K_AUTO, true) === false) {
+            알림('자동으로 줍기가 꺼져 있습니다', 'no'); return;
+        }
         let 일 = GM_getValue(K_일, null);
 
         // ── 상품 화면에 들어와 있다 — 줍고 그 건을 끝낸다
@@ -449,15 +452,27 @@
         검색으로(일.영문으로했나 ? 일.영문 : (일.품번 || 일.영문));
     }
 
-    async function 다음일() {
+    async function 다음일(조용히) {
         if (!크림인가() || !GM_getValue(K_순찰, true)) return;
         const 센것 = Number(GM_getValue(K_센것, 0) || 0);
-        if (센것 >= 25) { return; }                 // 한 판에 25건까지만 (폭주 막기)
+        if (센것 >= 25) {
+            알림('크림 순찰 : 이 판에 25건을 다 했습니다\n차림표 「크림 순찰 다시 시작」', 'ok');
+            return;
+        }
         const 답 = await 창구에서('찾을것');
-        if (!답 || !답.ok || !답.일) return;         // 할 일이 없으면 조용히 멈춘다
+        if (!답) {
+            알림('메일지기가 안 켜져 있습니다\n(창구 127.0.0.1:8731 이 조용합니다)', 'no');
+            return;
+        }
+        if (!답.일) {
+            if (!조용히) 알림('크림 순찰 : 찾을 것이 없습니다', 'ok');
+            return;
+        }
         GM_setValue(K_센것, 센것 + 1);
         GM_setValue(K_일, 답.일);
-        검색으로(답.일.품번 || 답.일.영문);
+        알림('크림에서 찾습니다 (' + (답.남은것 || 1) + '건 남음)\n'
+            + (답.일.품번 || 답.일.영문).slice(0, 40), 'ok');
+        setTimeout(() => 검색으로(답.일.품번 || 답.일.영문), 900);
     }
 
     function 창구로(줄) {
@@ -612,6 +627,11 @@
             GM_setValue(K_센것, 0);
             alert('크림 순찰을 ' + (GM_getValue(K_순찰, true) ? '켰습니다' : '껐습니다'));
         });
+    GM_registerMenuCommand('크림 순찰 지금 해보기', () => {
+        GM_setValue(K_순찰, true);
+        if (!크림인가()) { alert('크림 화면에서 눌러 주십시오.'); return; }
+        순찰();
+    });
     GM_registerMenuCommand('크림 순찰 다시 시작', () => {
         GM_setValue(K_센것, 0); GM_setValue(K_일, null);
         alert('다시 셉니다 — 크림 화면을 새로 고치시면 이어서 돕니다.');
