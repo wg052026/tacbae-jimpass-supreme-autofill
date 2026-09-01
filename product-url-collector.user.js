@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.4.0
+// @version      1.5.0
 // @description  구매처 상품 페이지에 들어가기만 하면 상품명·제품URL·이미지URL을 저절로 주워 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
 // @author       wg052026
 // @match        https://us.supreme.com/*
@@ -138,7 +138,16 @@
     // ── 상품명 고르기 ───────────────────────────────────────────
     // [고침 v1.3.0] 슈프림에서 `og:title` 이 **`Shop`** 으로 와서 상품명이
     // 「Shop」으로 들어갔다(실측 2026-09-02). 그래서 여러 곳을 차례로 본다.
-    const 헛말 = /^(shop|home|store|products?|cart|search|menu|supreme|kapital)$/i;
+    // [실측 2026-09-02] 캐피탈 웹샵은 h1 이 **`MEN'S`** 였다 — 상품명이 아니다.
+    const 헛말 = /^(shop|home|store|products?|cart|search|menu|supreme|kapital|men'?s|women'?s|ladies|mens|womens|new|sale|item|detail|list)$/i;
+
+    // 주소에 품번이 드러나는 가게 — 품번이 이름보다 확실하다
+    //   캐피탈 웹샵 : /item/K2606LP226.html
+    function 품번뽑기() {
+        const m = location.pathname.match(/\/item\/([A-Za-z0-9\-_]{5,})\.html/i)
+            || location.pathname.match(/\/(?:goods|detail|item)\/([A-Za-z0-9\-_]{6,})\/?$/i);
+        return m ? m[1] : '';
+    }
 
     function 쓸만한(x) {
         const t = String(x || '').replace(/\s+/g, ' ').trim();
@@ -200,6 +209,7 @@
         if (사진 && 사진.startsWith('//')) 사진 = location.protocol + 사진;
         return {
             상품명: String(이름).replace(/\s+/g, ' ').trim().slice(0, 160),
+            품번: 품번뽑기(),
             사진이름: (사진 || '').split('/').pop().split('?')[0],
             제품URL: location.href.split('?')[0].split('#')[0],
             이미지URL: (사진 || '').split('?')[0],
@@ -265,9 +275,14 @@
             if (손으로) 알림('이 화면에서 상품명·사진을 못 찾았습니다.', 'no');
             return;
         }
-        if (헛말.test(줄.상품명)) {          // 「Shop」 같은 헛이름은 안 보낸다
-            if (손으로) 알림('상품명을 못 읽었습니다 — 화면이 다 그려진 뒤 다시 눌러 주십시오.', 'no');
-            return;
+        if (헛말.test(줄.상품명)) {
+            // 이름을 못 읽어도 **품번이 있으면 보낸다** — 품번이 더 확실한 열쇠다
+            if (줄.품번) {
+                줄.상품명 = 줄.품번;
+            } else {
+                if (손으로) 알림('상품명을 못 읽었습니다 — 화면이 다 그려진 뒤 다시 눌러 주십시오.', 'no');
+                return;
+            }
         }
         const 본것 = GM_getValue(K_BON, []) || [];
         if (!손으로 && 본것.includes(줄.제품URL)) {
@@ -333,6 +348,7 @@
             '─────────────',
             '상품 화면인가 : ' + (상품인가() ? '예' : '아니오'),
             '고른 이름 : ' + (줄.상품명 || '(못 찾음)').slice(0, 44),
+            '주소 속 품번 : ' + (줄.품번 || '(없음)'),
             '고른 사진 : ' + (줄.이미지URL ? '있음' : '(없음)'),
         ].join('\n');
         알림(글, 상품인가() ? 'ok' : 'no');
