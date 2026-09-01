@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.8.1
-// @description  구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
+// @version      1.9.0
+// @description  크림 탭을 하나 열어 두면 못 찾은 물건을 스스로 검색해 찾아 줍는다. 구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://kream.co.kr/*
 // @match        https://*.kream.co.kr/*
@@ -353,6 +353,113 @@
     }
 
     // ── 먼저 컴퓨터의 메일지기에게 바로 준다 (토큰이 필요 없다) ──
+    // ── 크림 순찰 ───────────────────────────────────────────────
+    //  [사장님 지적 2026-09-01] 「크림에 수많은 물건 중에 어떻게 잡지?」
+    //  맞는 말씀이다. 사장님이 그 화면을 찾아 들어가실 리가 없다.
+    //  그래서 **크림 탭 하나만 열려 있으면 이 스크립트가 스스로 돈다.**
+    //   ① 메일지기에게 「다음에 뭘 찾을까요」 묻는다
+    //   ② 품번으로 크림에서 검색한다 → 안 나오면 영문 상품명으로 한 번 더
+    //   ③ 첫 결과로 들어가 줍는다 → 메일지기에 넣고 그 건을 목록에서 뺀다
+    //   ④ 다음 건으로 넘어간다. 다 하면 조용히 멈춘다.
+    const K_일 = 'purl_크림일';          // 지금 맡은 일
+    const K_순찰 = 'purl_크림순찰';       // 순찰을 켤까
+    const K_센것 = 'purl_크림센것';       // 이 판에 몇 건 했나
+    const 크림인가 = () => location.hostname.indexOf('kream.co.kr') >= 0;
+    const 크림상품인가 = () => /\/products\/\d+/.test(location.pathname);
+    const 크림검색인가 = () => location.pathname.indexOf('/search') === 0;
+
+    function 창구에서(길) {
+        return new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: 창구 + 길, timeout: 4000,
+                onload: r => {
+                    try { resolve(JSON.parse(r.responseText)); }
+                    catch (e) { resolve(null); }
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null)
+            });
+        });
+    }
+
+    function 검색으로(말) {
+        location.href = 'https://kream.co.kr/search?keyword='
+            + encodeURIComponent(String(말).trim());
+    }
+
+    // 검색 결과가 다 그려질 때까지 기다렸다 첫 상품 주소를 준다
+    function 첫결과기다리기(최대초) {
+        return new Promise(resolve => {
+            const 끝 = Date.now() + (최대초 || 9) * 1000;
+            const 시계 = setInterval(() => {
+                const a = document.querySelector('a[href*="/products/"]');
+                if (a && a.getAttribute('href')) {
+                    clearInterval(시계);
+                    resolve(new URL(a.getAttribute('href'), location.origin).href);
+                    return;
+                }
+                // 「검색 결과가 없습니다」 같은 말이 뜨면 더 기다릴 것 없다
+                const 글 = (document.body.innerText || '').slice(0, 2000);
+                if (/검색\s*결과가?\s*없|결과를\s*찾을\s*수\s*없/.test(글)) {
+                    clearInterval(시계); resolve(null); return;
+                }
+                if (Date.now() > 끝) { clearInterval(시계); resolve(null); }
+            }, 700);
+        });
+    }
+
+    async function 순찰() {
+        if (!크림인가() || !GM_getValue(K_순찰, true)) return;
+        if (GM_getValue(K_AUTO, true) === false) return;
+        let 일 = GM_getValue(K_일, null);
+
+        // ── 상품 화면에 들어와 있다 — 줍고 그 건을 끝낸다
+        if (크림상품인가()) {
+            const 줄 = 줍기();
+            if (줄.상품명 && 줄.크림pid) {
+                if (일 && 일.열쇠) 줄.열쇠 = 일.열쇠;
+                // 크림 이름만 있고 품번이 비면, 찾던 품번을 그대로 붙여 준다
+                if (일 && 일.품번 && !줄.품번) 줄.품번 = 일.품번;
+                await 창구로(줄);
+                알림('크림에서 찾았습니다\n' + 줄.상품명.slice(0, 44), 'ok');
+            }
+            GM_setValue(K_일, null);
+            setTimeout(다음일, 2500);
+            return;
+        }
+
+        // ── 검색 결과 화면 — 첫 물건으로 들어간다
+        if (크림검색인가() && 일) {
+            const 첫 = await 첫결과기다리기(9);
+            if (첫) { location.href = 첫; return; }
+            if (!일.영문으로했나 && 일.영문 && 일.영문 !== 일.품번) {
+                일.영문으로했나 = true;              // 품번이 안 나왔다 — 이름으로 한 번 더
+                GM_setValue(K_일, 일);
+                검색으로(일.영문);
+                return;
+            }
+            await 창구로({ 없더라: true, 열쇠: 일.열쇠 });   // 크림에 아직 없는 물건이다
+            GM_setValue(K_일, null);
+            setTimeout(다음일, 2000);
+            return;
+        }
+
+        // ── 아무 크림 화면 — 맡은 일이 없으면 하나 받아 온다
+        if (!일) { 다음일(); return; }
+        검색으로(일.영문으로했나 ? 일.영문 : (일.품번 || 일.영문));
+    }
+
+    async function 다음일() {
+        if (!크림인가() || !GM_getValue(K_순찰, true)) return;
+        const 센것 = Number(GM_getValue(K_센것, 0) || 0);
+        if (센것 >= 25) { return; }                 // 한 판에 25건까지만 (폭주 막기)
+        const 답 = await 창구에서('찾을것');
+        if (!답 || !답.ok || !답.일) return;         // 할 일이 없으면 조용히 멈춘다
+        GM_setValue(K_센것, 센것 + 1);
+        GM_setValue(K_일, 답.일);
+        검색으로(답.일.품번 || 답.일.영문);
+    }
+
     function 창구로(줄) {
         return new Promise(resolve => {
             GM_xmlhttpRequest({
@@ -499,6 +606,16 @@
         try { GM_setValue('purl_진단', 글); } catch (e) { }
         console.log('[상품주소 진단]\n' + 글);
     });
+    GM_registerMenuCommand(
+        GM_getValue(K_순찰, true) ? '크림 순찰 : 켬' : '크림 순찰 : 끔', () => {
+            GM_setValue(K_순찰, !GM_getValue(K_순찰, true));
+            GM_setValue(K_센것, 0);
+            alert('크림 순찰을 ' + (GM_getValue(K_순찰, true) ? '켰습니다' : '껐습니다'));
+        });
+    GM_registerMenuCommand('크림 순찰 다시 시작', () => {
+        GM_setValue(K_센것, 0); GM_setValue(K_일, null);
+        alert('다시 셉니다 — 크림 화면을 새로 고치시면 이어서 돕니다.');
+    });
     GM_registerMenuCommand('올린 기록 지우기', () => {
         GM_setValue(K_BON, []); alert('지웠습니다 — 같은 상품도 다시 올립니다.');
     });
@@ -523,7 +640,7 @@
                 주문묶기();
                 return;
             }
-            if (상품인가()) {
+            if (상품인가() && !크림인가()) {
                 clearInterval(시계); 시계 = null;
                 마지막주소 = location.href;
                 한번(false);
@@ -541,4 +658,6 @@
     }, 1500);
 
     지켜보기();
+    // 크림은 순찰이 맡는다 — 화면이 다 그려질 틈을 준다
+    if (크림인가()) setTimeout(() => { 순찰(); }, 2500);
 })();
