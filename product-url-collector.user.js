@@ -1,13 +1,17 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.3.0
+// @version      1.4.0
 // @description  구매처 상품 페이지에 들어가기만 하면 상품명·제품URL·이미지URL을 저절로 주워 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
 // @author       wg052026
 // @match        https://us.supreme.com/*
 // @match        https://shop.supreme.com/*
 // @match        https://kapital-webshop.jp/*
-// @match        https://www.kapital-webshop.jp/*
+// @match        https://*.kapital-webshop.jp/*
+// @match        https://kapital.jp/*
+// @match        https://*.kapital.jp/*
+// @match        https://kapital-net.com/*
+// @match        https://*.kapital-net.com/*
 // @match        https://kerouacokinawa.jp/*
 // @match        https://www.kerouacokinawa.jp/*
 // @match        https://ec.hystericglamour.jp/*
@@ -95,14 +99,16 @@
             창.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:2147483647;'
                 + 'background:#1e232b;color:#e8edf4;font:12px/1.6 "Malgun Gothic",sans-serif;'
                 + 'padding:9px 13px;border-radius:7px;border:1px solid #39424e;'
-                + 'box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:330px;white-space:pre-line';
+                + 'box-shadow:0 6px 18px rgba(0,0,0,.35);max-width:360px;white-space:pre-line;'
+                + 'user-select:text';
             document.body.appendChild(창);
         }
         창.style.borderColor = 빛 === 'ok' ? '#2e5240' : (빛 === 'no' ? '#7a3a3a' : '#39424e');
         창.textContent = '상품주소 모으기\n' + 글;
         창.style.display = 'block';
         clearTimeout(창._t);
-        창._t = setTimeout(() => { 창.style.display = 'none'; }, 6000);
+        창._t = setTimeout(() => { 창.style.display = 'none'; },
+                          글.split('\n').length > 4 ? 30000 : 6000);   // 진단은 오래 둔다
     }
 
     // ── 이 화면이 상품 페이지인가 ───────────────────────────────
@@ -313,6 +319,26 @@
             GM_setValue(K_AUTO, !GM_getValue(K_AUTO, true));
             alert('다음에 새로고침하면 바뀝니다.');
         });
+    // [고침 v1.4.0] 안 잡히는 화면에서 **왜 안 잡히는지** 눈으로 보게 한다.
+    GM_registerMenuCommand('이 화면 진단', () => {
+        const 줄 = 줍기();
+        const 글 = [
+            '주소 : ' + location.hostname + location.pathname.slice(0, 46),
+            'og:type  : ' + (메타('og:type') || '(없음)'),
+            'og:title : ' + (메타('og:title') || '(없음)').slice(0, 40),
+            'og:image : ' + (메타('og:image') ? '있음' : '(없음)'),
+            'h1       : ' + ((document.querySelector('h1')?.textContent || '(없음)')
+                .replace(/\s+/g, ' ').trim().slice(0, 40)),
+            'JSON-LD  : ' + document.querySelectorAll('script[type="application/ld+json"]').length + '개',
+            '─────────────',
+            '상품 화면인가 : ' + (상품인가() ? '예' : '아니오'),
+            '고른 이름 : ' + (줄.상품명 || '(못 찾음)').slice(0, 44),
+            '고른 사진 : ' + (줄.이미지URL ? '있음' : '(없음)'),
+        ].join('\n');
+        알림(글, 상품인가() ? 'ok' : 'no');
+        try { GM_setValue('purl_진단', 글); } catch (e) { }
+        console.log('[상품주소 진단]\n' + 글);
+    });
     GM_registerMenuCommand('올린 기록 지우기', () => {
         GM_setValue(K_BON, []); alert('지웠습니다 — 같은 상품도 다시 올립니다.');
     });
