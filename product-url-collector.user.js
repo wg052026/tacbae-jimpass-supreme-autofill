@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.8.0
+// @version      1.8.1
 // @description  구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://kream.co.kr/*
@@ -206,7 +206,14 @@
             let x = String(u).trim();
             if (x.startsWith('//')) x = location.protocol + x;
             if (!/^https?:/i.test(x)) return;
-            x = x.split('?')[0];
+            // [실패 2026-09-01] 쿼리를 통째로 떼면 쇼피파이 사진이 404 가 된다.
+            // `?v=…` 는 그 파일을 가리키는 지문이라 남기고, 크기 지시만 뗀다.
+            try {
+                const U = new URL(x, location.href);
+                const v = U.searchParams.get('v');
+                U.search = v ? ('?v=' + v) : '';
+                x = U.toString();
+            } catch (e) { x = x.split('?')[0]; }
             if (/logo|icon|sprite|favicon|placeholder|blank|loading|badge/i.test(x)) return;
             if (모음.indexOf(x) < 0) 모음.push(x);
         };
@@ -282,7 +289,7 @@
             품번: 품번뽑기(),
             사진이름: (사진 || '').split('/').pop().split('?')[0],
             제품URL: location.href.split('?')[0].split('#')[0],
-            이미지URL: (사진 || '').split('?')[0],
+            이미지URL: 사진 || '',
             집: location.hostname,
             때: new Date().toISOString()
         };
