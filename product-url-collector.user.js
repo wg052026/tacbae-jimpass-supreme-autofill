@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.6.0
+// @version      1.7.0
 // @description  구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
+// @match        https://kream.co.kr/*
+// @match        https://*.kream.co.kr/*
 // @match        https://us.supreme.com/*
 // @match        https://shop.supreme.com/*
 // @match        https://kapital-webshop.jp/*
@@ -122,6 +124,9 @@
     // 판정을 넓혔다. 예전에는 주소에 `/products/` 가 있거나 og:type 이 product 일
     // 때만 상품으로 봐서, 그 꼴이 아닌 가게에서는 자동으로 안 주웠다.
     function 상품인가() {
+        // 크림 상품 화면 — 사장님이 값을 보실 때 이름·상품번호를 줍는다
+        if (location.hostname.indexOf('kream') >= 0)
+            return /\/products\/\d+/.test(location.pathname);
         if (/product/i.test(메타('og:type'))) return true;
         if (/\/(products?|item|items|goods|detail|dp|shop\/[^/]+\/[^/]+)\//i
             .test(location.pathname)) return true;
@@ -193,23 +198,60 @@
         return '';
     }
 
+    // ── 그 상품의 사진을 **전부** 줍는다 (사장님 지시 2026-09-02) ──
+    function 사진들모으기() {
+        const 모음 = [];
+        const 담기 = u => {
+            if (!u) return;
+            let x = String(u).trim();
+            if (x.startsWith('//')) x = location.protocol + x;
+            if (!/^https?:/i.test(x)) return;
+            x = x.split('?')[0];
+            if (/logo|icon|sprite|favicon|placeholder|blank|loading|badge/i.test(x)) return;
+            if (모음.indexOf(x) < 0) 모음.push(x);
+        };
+        // ① 상품 정보표(JSON-LD)의 image — 대개 그 상품 사진이 다 들어 있다
+        for (const el of document.querySelectorAll('script[type="application/ld+json"]')) {
+            try {
+                let j = JSON.parse(el.textContent);
+                const 상자 = Array.isArray(j) ? j : (j['@graph'] ? j['@graph'] : [j]);
+                for (const o of 상자) {
+                    if (!o || !/product/i.test(String(o['@type'] || ''))) continue;
+                    const im = o.image;
+                    if (typeof im === 'string') 담기(im);
+                    else if (Array.isArray(im)) im.forEach(x =>
+                        담기(typeof x === 'string' ? x : (x && x.url)));
+                    else if (im && im.url) 담기(im.url);
+                }
+            } catch (e) { }
+        }
+        // ② 대표 사진
+        담기(메타('og:image'));
+        // ③ 화면에 있는 큰 사진들 — 같은 집에서 온 것만, 넓이 400 이상
+        const 후보 = [];
+        document.querySelectorAll('img').forEach(im => {
+            const w = im.naturalWidth || im.width || 0;
+            const h = im.naturalHeight || im.height || 0;
+            let src = im.currentSrc || im.src || im.getAttribute('data-src') || '';
+            if (!src || w < 400 || h < 400) return;
+            후보.push([w * h, src]);
+        });
+        후보.sort((a, b) => b[0] - a[0]);
+        후보.slice(0, 14).forEach(x => 담기(x[1]));
+        return 모음.slice(0, 12);
+    }
+
     // ── 이 화면에서 주울 것 ─────────────────────────────────────
     function 줍기() {
         const 이름 = 상품명찾기();
-        let 사진 = 메타('og:image');
-        if (!사진) {
-            // og:image 가 없으면 화면에서 가장 큰 사진을 고른다
-            let 크기 = 0;
-            document.querySelectorAll('img').forEach(im => {
-                const s = (im.naturalWidth || 0) * (im.naturalHeight || 0);
-                if (s > 크기 && im.src && !/logo|icon|sprite/i.test(im.src)) {
-                    크기 = s; 사진 = im.src;
-                }
-            });
-        }
+        const 사진목록 = 사진들모으기();
+        let 사진 = 사진목록[0] || 메타('og:image');
         if (사진 && 사진.startsWith('//')) 사진 = location.protocol + 사진;
         return {
             상품명: String(이름).replace(/\s+/g, ' ').trim().slice(0, 160),
+            사진들: 사진목록,
+            크림pid: (location.hostname.indexOf('kream') >= 0
+                ? (location.pathname.match(/\/products\/(\d+)/) || [])[1] || '' : ''),
             품번: 품번뽑기(),
             사진이름: (사진 || '').split('/').pop().split('?')[0],
             제품URL: location.href.split('?')[0].split('#')[0],
