@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.0.0
-// @description  구매처 상품 페이지에서 상품명·제품URL·이미지URL을 읽어 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
+// @version      1.2.0
+// @description  구매처 상품 페이지에 들어가기만 하면 상품명·제품URL·이미지URL을 저절로 주워 우편함에 쌓는다. 짐패스 등록 엑셀의 H·I 열이 이것으로 채워진다.
 // @author       wg052026
 // @match        https://us.supreme.com/*
 // @match        https://shop.supreme.com/*
@@ -26,6 +26,8 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
+// @connect      127.0.0.1
+// @connect      localhost
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/product-url-collector.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/product-url-collector.user.js
@@ -50,6 +52,11 @@
 (function () {
     'use strict';
 
+    // [사장님 지시 2026-09-01 「내가 따로 해야하잔아」]
+    // 깃허브를 거치면 **토큰을 손수 넣어야** 한다. 그 한 번도 없애려고,
+    // 컴퓨터에서 도는 「메일지기」가 열어 둔 작은 창구로 **바로 보낸다.**
+    // 창구가 안 열려 있을 때만 깃허브로 돌아간다(다른 컴퓨터에서 쓸 때를 위해).
+    const 창구 = 'http://127.0.0.1:8731/';
     const REPO = 'wg052026/kream-tools';              // Private — 주소는 여기 안 적는다
     const PATH = 'mailbox/buy/상품주소.json';
     const K_TOKEN = 'gh_token';
@@ -104,9 +111,22 @@
         return el ? (el.getAttribute('content') || '').trim() : '';
     }
 
+    // [고침 v1.1.0 · 사장님 지시 「여기 들어가면 알아서 올라가게 해」]
+    // 판정을 넓혔다. 예전에는 주소에 `/products/` 가 있거나 og:type 이 product 일
+    // 때만 상품으로 봐서, 그 꼴이 아닌 가게에서는 자동으로 안 주웠다.
     function 상품인가() {
         if (/product/i.test(메타('og:type'))) return true;
-        return /\/(products?|item|items|goods|detail|dp)\//i.test(location.pathname);
+        if (/\/(products?|item|items|goods|detail|dp|shop\/[^/]+\/[^/]+)\//i
+            .test(location.pathname)) return true;
+        // 위 둘이 아니어도 — **큰 사진 + 제목 + 값이 함께 있으면** 상품 화면으로 본다
+        const 사진 = 메타('og:image');
+        const 제목 = 메타('og:title') || (document.querySelector('h1')?.textContent || '');
+        if (!사진 || !제목.trim()) return false;
+        const 글 = document.body ? document.body.innerText.slice(0, 6000) : '';
+        const 값있나 = /[¥￥$€₩]\s?[\d,]{3,}|[\d,]{4,}\s?(원|円|JPY|USD)/i.test(글);
+        const 담기 = /장바구니|카트|담기|구매하기|바로구매|購入|カート|add to (cart|bag)|buy now/i
+            .test(글);
+        return 값있나 && 담기;
     }
 
     // ── 이 화면에서 주울 것 ─────────────────────────────────────
@@ -132,6 +152,23 @@
             집: location.hostname,
             때: new Date().toISOString()
         };
+    }
+
+    // ── 먼저 컴퓨터의 메일지기에게 바로 준다 (토큰이 필요 없다) ──
+    function 창구로(줄) {
+        return new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method: 'POST', url: 창구, timeout: 4000,
+                headers: { 'Content-Type': 'application/json' },
+                data: JSON.stringify(줄),
+                onload: r => {
+                    try { resolve(JSON.parse(r.responseText)); }
+                    catch (e) { resolve(null); }
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null)
+            });
+        });
     }
 
     // ── 우편함에 쌓는다 (덮어쓰지 않는다) ───────────────────────
@@ -168,22 +205,42 @@
     async function 한번(손으로) {
         if (도는중) return;
         if (!손으로 && !상품인가()) return;
+        if (!손으로) 알림('상품 화면입니다 — 주소를 올립니다…');
         const 줄 = 줍기();
         if (!줄.상품명 || !줄.이미지URL) {
             if (손으로) 알림('이 화면에서 상품명·사진을 못 찾았습니다.', 'no');
             return;
         }
         const 본것 = GM_getValue(K_BON, []) || [];
-        if (!손으로 && 본것.includes(줄.제품URL)) return;   // 이미 올린 것
+        if (!손으로 && 본것.includes(줄.제품URL)) {
+            알림('이미 올린 상품입니다.\n' + 줄.상품명.slice(0, 44), 'ok');
+            return;
+        }
         도는중 = true;
-        알림('올리는 중…\n' + 줄.상품명.slice(0, 46));
+        알림('보내는 중…\n' + 줄.상품명.slice(0, 46));
         try {
+            // ① 컴퓨터의 메일지기에게 바로 (토큰이 필요 없다)
+            const 답 = await 창구로(줄);
+            if (답 && 답.ok) {
+                GM_setValue(K_BON, [...new Set([...본것, 줄.제품URL])].slice(-500));
+                알림(`메일지기에 넣었습니다 (모두 ${답.모두}건)\n`
+                    + 줄.상품명.slice(0, 44), 'ok');
+                도는중 = false;
+                return;
+            }
+            // ② 창구가 안 열려 있으면 깃허브로 (다른 컴퓨터에서 쓸 때)
+            if (!GM_getValue(K_TOKEN, '')) {
+                알림('메일지기가 안 켜져 있습니다.\n'
+                    + '「1 메일지기」를 켜 두시면 저절로 들어갑니다.', 'no');
+                도는중 = false;
+                return;
+            }
             const n = await 올리기(줄);
             if (n) {
                 GM_setValue(K_BON, [...new Set([...본것, 줄.제품URL])].slice(-500));
-                알림(`올렸습니다 (모두 ${n}건)\n${줄.상품명.slice(0, 46)}`, 'ok');
+                알림(`우편함에 올렸습니다 (모두 ${n}건)\n${줄.상품명.slice(0, 44)}`, 'ok');
             } else {
-                알림('못 올렸습니다 — 토큰·권한을 봐 주십시오.', 'no');
+                알림('못 보냈습니다 — 메일지기도 깃허브도 안 됩니다.', 'no');
             }
         } catch (e) {
             알림('실패 — ' + String(e).slice(0, 70), 'no');
@@ -212,15 +269,32 @@
     // 화면이 늦게 그려지는 곳(슈프림은 Shopify)이 있어 조금 기다렸다 본다.
     // [과거 실패] setInterval 을 겹쳐 걸어 값이 왔다갔다 한 적이 있다 —
     // 여기서는 타이머를 하나만 두고 다 되면 스스로 끈다.
-    if (GM_getValue(K_AUTO, true)) {
+    let 시계 = null;
+    let 마지막주소 = '';
+
+    function 지켜보기() {
+        if (!GM_getValue(K_AUTO, true)) return;
+        if (시계) { clearInterval(시계); 시계 = null; }   // [과거 실패] 타이머를 겹쳐 걸지 않는다
         let 센것 = 0;
-        const 시계 = setInterval(() => {
+        시계 = setInterval(() => {
             센것 += 1;
-            if (센것 > 10) { clearInterval(시계); return; }
-            if (상품인가() && (메타('og:image') || document.querySelector('h1'))) {
-                clearInterval(시계);
+            if (센것 > 30) { clearInterval(시계); 시계 = null; return; }   // 27초까지 기다린다
+            if (상품인가()) {
+                clearInterval(시계); 시계 = null;
+                마지막주소 = location.href;
                 한번(false);
             }
         }, 900);
     }
+
+    // 요즘 쇼핑몰은 화면을 갈아 끼우기만 하고 새로 열지 않는다(주소만 바뀐다).
+    // 그래서 **주소가 바뀌면 다시 본다.**
+    setInterval(() => {
+        if (location.href !== 마지막주소 && !도는중) {
+            마지막주소 = location.href;
+            지켜보기();
+        }
+    }, 1500);
+
+    지켜보기();
 })();
