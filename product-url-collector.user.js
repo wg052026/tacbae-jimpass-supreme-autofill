@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.7.0
+// @version      1.8.0
 // @description  구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://kream.co.kr/*
@@ -241,6 +241,32 @@
         return 모음.slice(0, 12);
     }
 
+    // ── 사이즈표를 줍는다 (사장님 규칙 — 맨 끝 사진이 사이즈표) ──
+    function 사이즈표줍기() {
+        const 낱말 = /(size|chest|length|shoulder|sleeve|waist|width|hem|사이즈|어깨|가슴|총장|소매|허리|밑단)/i;
+        let 좋은 = null, 좋은점 = 0;
+        document.querySelectorAll('table').forEach(t => {
+            const 줄들 = [...t.querySelectorAll('tr')];
+            if (줄들.length < 2) return;
+            const 글 = (t.innerText || '').slice(0, 400);
+            let 점 = 0;
+            const m = 글.match(new RegExp(낱말.source, 'gi'));
+            if (m) 점 += m.length * 3;
+            if (/\b(XS|S|M|L|XL|XXL)\b/.test(글)) 점 += 5;
+            if (!점) return;
+            점 += Math.min(줄들.length, 8);
+            if (점 > 좋은점) { 좋은점 = 점; 좋은 = t; }
+        });
+        if (!좋은) return null;
+        const 표 = [];
+        for (const tr of 좋은.querySelectorAll('tr')) {
+            const 칸 = [...tr.querySelectorAll('th,td')]
+                .map(c => (c.innerText || '').replace(/\s+/g, ' ').trim());
+            if (칸.length && 칸.some(x => x)) 표.push(칸.slice(0, 10));
+        }
+        return 표.length >= 2 ? 표.slice(0, 14) : null;
+    }
+
     // ── 이 화면에서 주울 것 ─────────────────────────────────────
     function 줍기() {
         const 이름 = 상품명찾기();
@@ -250,6 +276,7 @@
         return {
             상품명: String(이름).replace(/\s+/g, ' ').trim().slice(0, 160),
             사진들: 사진목록,
+            사이즈표: 사이즈표줍기(),
             크림pid: (location.hostname.indexOf('kream') >= 0
                 ? (location.pathname.match(/\/products\/(\d+)/) || [])[1] || '' : ''),
             품번: 품번뽑기(),
