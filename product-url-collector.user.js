@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         르플러스 상품주소 모으기
 // @namespace    https://github.com/wg052026
-// @version      1.9.1
+// @version      1.10.1
 // @description  크림 탭을 하나 열어 두면 못 찾은 물건을 스스로 검색해 찾아 줍는다. 구매처 상품 페이지에서 주소·사진을 저절로 줍고, 결제를 마치면 그 화면의 주문번호와 묶어 보낸다. 며칠 뒤 오는 발송 메일과 주문번호로 이어져 짐패스 등록 엑셀의 H·I 열이 채워진다.
 // @author       wg052026
 // @match        https://kream.co.kr/*
@@ -15,6 +15,8 @@
 // @match        https://kapital-net.com/*
 // @match        https://*.kapital-net.com/*
 // @match        https://kerouacokinawa.jp/*
+// @match        https://kerouac.okinawa/*
+// @match        https://*.kerouac.okinawa/*
 // @match        https://www.kerouacokinawa.jp/*
 // @match        https://ec.hystericglamour.jp/*
 // @match        https://humanmade.jp/*
@@ -250,7 +252,7 @@
 
     // ── 사이즈표를 줍는다 (사장님 규칙 — 맨 끝 사진이 사이즈표) ──
     function 사이즈표줍기() {
-        const 낱말 = /(size|chest|length|shoulder|sleeve|waist|width|hem|사이즈|어깨|가슴|총장|소매|허리|밑단)/i;
+        const 낱말 = /(size|chest|length|shoulder|sleeve|waist|width|hem|사이즈|어깨|가슴|총장|소매|허리|밑단|サイズ|着丈|身幅|肩幅|袖丈|ウエスト|ヒップ|ワタリ|股上|股下|裾|総丈|そで丈)/i;
         let 좋은 = null, 좋은점 = 0;
         document.querySelectorAll('table').forEach(t => {
             const 줄들 = [...t.querySelectorAll('tr')];
@@ -387,18 +389,89 @@
             + encodeURIComponent(String(말).trim());
     }
 
-    // 검색 결과가 다 그려질 때까지 기다렸다 첫 상품 주소를 준다
-    function 첫결과기다리기(최대초) {
+    // ── 색·이름 대조 ───────────────────────────────────────────
+    //  [실패 2026-09-02] Small Box Zip Up Hooded Sweatshirt Black 을 찾으라 했는데
+    //  크림 검색 첫 결과인 Navy 를 그냥 집어 저장했다.
+    //  사진·사이즈표가 엉뚱한 색 것으로 들어갔다. 그래서 이름을 대조한다.
+    const 색표 = {
+        black: ['black', '블랙', '검정', '검은'],
+        white: ['white', '화이트', '흰'],
+        navy: ['navy', '네이비'],
+        grey: ['grey', 'gray', 'heather', '그레이', '헤더'],
+        red: ['red', '레드', '빨강'],
+        blue: ['blue', '블루', '파랑'],
+        green: ['green', '그린', '초록'],
+        brown: ['brown', '브라운', '갈색'],
+        beige: ['beige', '베이지'],
+        tan: ['tan', '탄'],
+        purple: ['purple', '퍼플', '보라'],
+        pink: ['pink', '핑크'],
+        yellow: ['yellow', '옐로우', '옐로', '노랑'],
+        orange: ['orange', '오렌지', '주황'],
+        olive: ['olive', '올리브'],
+        charcoal: ['charcoal', '차콜'],
+        natural: ['natural', '내추럴'],
+        khaki: ['khaki', '카키'],
+        burgundy: ['burgundy', '버건디'],
+        gold: ['gold', '골드'],
+        silver: ['silver', '실버'],
+        sand: ['sand', '샌드'],
+        stone: ['stone', '스톤'],
+        indigo: ['indigo', '인디고'],
+        camo: ['camo', '카모'],
+        multi: ['multicolor', 'multi color', '멀티']
+    };
+    function 색뽑기(글) {
+        const t = String(글 || '').toLowerCase();
+        const 난 = [];
+        for (const 색 in 색표)
+            if (색표[색].some(w => t.indexOf(w) >= 0)) 난.push(색);
+        return 난;
+    }
+    function 낱말들(글) {
+        return String(글 || '').toLowerCase()
+            .replace(/[^a-z0-9가-힣]+/g, ' ')
+            .split(' ')
+            .filter(w => w.length >= 3 &&
+                !/^(the|and|for|with|new|26fw|25fw|fw26|ss26)$/.test(w));
+    }
+
+    // 이 후보가 찾던 물건인가 — 색이 어긋나면 아예 버린다
+    function 맞나(찾던, 후보글) {
+        const 찾색 = 색뽑기(찾던), 후색 = 색뽑기(후보글);
+        if (찾색.length && 후색.length && !찾색.some(c => 후색.indexOf(c) >= 0))
+            return -1;                       // 색이 다르다 — 다른 물건이다
+        const 찾낱 = 낱말들(찾던);
+        if (!찾낱.length) return 0;
+        const 후 = String(후보글 || '').toLowerCase();
+        let 맞은 = 0;
+        찾낱.forEach(w => { if (후.indexOf(w) >= 0) 맞은++; });
+        if (맞은 * 2 < 찾낱.length) return -1;   // 절반도 안 겹치면 다른 물건이다
+        return 맞은 + (찾색.length && 후색.length ? 3 : 0);
+    }
+
+    // 검색 결과가 다 그려질 때까지 기다렸다 **찾던 것과 맞는** 상품 주소를 준다
+    //  [고침 v1.10.0] 예전에는 맨 첫 줄을 그냥 집었다(색 사고의 원인).
+    function 맞는결과기다리기(찾던, 최대초) {
         return new Promise(resolve => {
             const 끝 = Date.now() + (최대초 || 9) * 1000;
             const 시계 = setInterval(() => {
-                const a = document.querySelector('a[href*="/products/"]');
-                if (a && a.getAttribute('href')) {
+                const 링크 = [...document.querySelectorAll('a[href*="/products/"]')]
+                    .filter(a => a.getAttribute('href'));
+                if (링크.length) {
                     clearInterval(시계);
-                    resolve(new URL(a.getAttribute('href'), location.origin).href);
+                    let 좋은 = null, 좋은점 = 0;
+                    for (const a of 링크.slice(0, 20)) {
+                        const 글 = (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim();
+                        const 점 = 맞나(찾던, 글);
+                        if (점 > 좋은점) {
+                            좋은점 = 점;
+                            좋은 = new URL(a.getAttribute('href'), location.origin).href;
+                        }
+                    }
+                    resolve(좋은);            // 맞는 게 없으면 null — 첫 줄을 집지 않는다
                     return;
                 }
-                // 「검색 결과가 없습니다」 같은 말이 뜨면 더 기다릴 것 없다
                 const 글 = (document.body.innerText || '').slice(0, 2000);
                 if (/검색\s*결과가?\s*없|결과를\s*찾을\s*수\s*없/.test(글)) {
                     clearInterval(시계); resolve(null); return;
@@ -419,6 +492,14 @@
         // ── 상품 화면에 들어와 있다 — 줍고 그 건을 끝낸다
         if (크림상품인가()) {
             const 줄 = 줍기();
+            // [고침 v1.10.0] 들어와 놓고도 한 번 더 본다 — 색이 어긋나면 안 담는다
+            if (일 && (일.영문 || 일.열쇠) && 줄.상품명 &&
+                맞나(일.영문 || 일.열쇠, 줄.상품명) < 0) {
+                알림('찾던 것과 다릅니다 — 담지 않습니다\n' + 줄.상품명.slice(0, 44), 'no');
+                GM_setValue(K_일, null);
+                setTimeout(다음일, 2500);
+                return;
+            }
             if (줄.상품명 && 줄.크림pid) {
                 if (일 && 일.열쇠) 줄.열쇠 = 일.열쇠;
                 // 크림 이름만 있고 품번이 비면, 찾던 품번을 그대로 붙여 준다
@@ -433,7 +514,7 @@
 
         // ── 검색 결과 화면 — 첫 물건으로 들어간다
         if (크림검색인가() && 일) {
-            const 첫 = await 첫결과기다리기(9);
+            const 첫 = await 맞는결과기다리기(일.영문 || 일.열쇠 || '', 9);
             if (첫) { location.href = 첫; return; }
             if (!일.영문으로했나 && 일.영문 && 일.영문 !== 일.품번) {
                 일.영문으로했나 = true;              // 품번이 안 나왔다 — 이름으로 한 번 더
