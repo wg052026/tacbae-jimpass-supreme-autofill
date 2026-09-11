@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.8.0
+// @version      1.9.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -13,6 +13,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @connect      api.github.com
+// @connect      127.0.0.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/logii-autofill.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/logii-autofill.user.js
 // ==/UserScript==
@@ -35,10 +36,15 @@
   // 개인정보는 코드에 넣지 않는다(저장소가 Public). 전부 GM_setValue 로 이 브라우저에만 둔다.
   // ─────────────────────────────────────────────────────────────
 
-  // ── 저장소에서 「보낼 것」을 받아 온다 ──────────────────────────
+  // ── 「보낼 것」을 받아 온다 ─────────────────────────────────────
   // [사장님 지시 2026-08-29] **박스는 클로드가 만들어 두고 사장님은 누르기만.**
-  // 받는사람 주소는 **Private 저장소**에만 둔다 — 이 스크립트가 있는 공개 저장소에는
-  // 아무것도 안 적는다. 토큰은 브라우저에만 저장한다(네이버 카테고리 스크립트와 같은 길).
+  //
+  // [길을 바꿨다 · 2026-09-11] 옛길은 **깃허브 저장소**였는데 두 가지가 걸렸다 —
+  //  ① `raw` 캐시가 5분이라 방금 팔린 것이 안 보인다
+  //  ② 토큰을 넣어야 하고, 토큰이 만료되면 조용히 막힌다
+  //  → 사장님 컴퓨터에서 늘 도는 **유저스크립트 창구**에서 받는다.
+  //    즉시 반영되고 토큰이 없다. 컴퓨터가 꺼져 있으면 저장소로 되돌아간다.
+  const 창구 = "http://127.0.0.1:8731";
   const 저장소 = "wg052026/kream-tools";
   const 목록길 = "mailbox/logii/보낼것.json";
   const TOKEN_KEY = "gh_token";
@@ -67,9 +73,24 @@
   }
 
   function 토큰() { return GM_getValue(TOKEN_KEY, "") || ""; }
-  async function 저장소에서받기() {
+
+  // ① 창구에서 받는다 — 사장님 컴퓨터에서 늘 도는 자리다
+  async function 창구에서받기() {
+    try {
+      const r = await fetch(창구 + "/보낼것", { cache: "no-store" });
+      if (!r.ok) return { 오류: "창구가 " + r.status + " 를 줍니다" };
+      const j = await r.json();
+      return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "",
+               길: "창구" };
+    } catch (e) {
+      return { 오류: "창구에 못 닿았습니다" };
+    }
+  }
+
+  // ② 저장소 — 창구가 안 될 때만 쓴다(옛길)
+  async function 깃허브에서받기() {
     const tok = 토큰();
-    if (!tok) return { 오류: "토큰이 없습니다 — Tampermonkey 메뉴에서 넣어 주십시오" };
+    if (!tok) return { 오류: "창구에 못 닿았고 토큰도 없습니다" };
     const url = "https://api.github.com/repos/" + 저장소 + "/contents/" +
                 encodeURIComponent(목록길).replace(/%2F/g, "/");
     try {
@@ -78,10 +99,32 @@
       });
       if (!r.ok) return { 오류: "저장소를 못 읽었습니다 (" + r.status + ")" };
       const j = JSON.parse(await r.text());
-      return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "" };
+      return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "",
+               길: "저장소" };
     } catch (e) {
       return { 오류: "저장소를 못 읽었습니다: " + e.message };
     }
+  }
+
+  async function 저장소에서받기() {
+    const a = await 창구에서받기();
+    if (!a.오류) return a;
+    const b = await 깃허브에서받기();
+    if (!b.오류) { b.말 = "창구가 안 되어 저장소에서 받았습니다"; return b; }
+    return { 오류: a.오류 + " · " + b.오류 };
+  }
+
+  // 쓴 박스는 창구에도 알려 준다 — 다음에 다시 안 뜨게
+  async function 창구에쓴것알리기(상자들) {
+    const oid들 = (상자들 || []).map((b) => b && b.oid).filter(Boolean);
+    if (!oid들.length) return;
+    try {
+      await fetch(창구 + "/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 로지쓴것: oid들 }),
+      });
+    } catch (e) {}
   }
 
   // [사장님 지시 2026-08-29] **적용해서 끝까지 가면 알아서 지운다.**
@@ -104,6 +147,7 @@
       cfg.박스 = (cfg.박스 || []).filter((b) => !지울것.includes(b));
       // 저장소에서 받아 온 것은 여기서 못 지우니 **쓴 것으로 적어 두고 감춘다**
       cfg.쓴것 = (cfg.쓴것 || []).concat(지울것.map((b) => b.라벨).filter(Boolean)).slice(-50);
+      try { 창구에쓴것알리기(지울것); } catch (x) {}
       저장();
       setTimeout(() => { try { 그리기(); } catch (x) {} }, 300);
     }, true);
@@ -409,13 +453,14 @@
     p.appendChild((() => {
       const d = document.createElement("div");
       d.style.cssText = "display:flex;gap:6px;margin:2px 0 8px;";
-      d.appendChild(단추("↻ 저장소에서 다시 받기", "#2f4a5d", async () => {
+      d.appendChild(단추("↻ 보낼 곳 다시 받기", "#2f4a5d", async () => {
         알림("받는 중…");
         const r = await 저장소에서받기();
         if (r.오류) { 알림(r.오류, "#f88"); return; }
         저장소박스 = r.목 || [];
         그리기();
-        알림("보낼 것 " + 저장소박스.length + "건" + (r.때 ? " (" + r.때 + ")" : ""), "#8d8");
+        알림("보낼 것 " + 저장소박스.length + "건" + (r.때 ? " (" + r.때 + ")" : "")
+             + (r.길 ? " · " + r.길 : ""), "#8d8");
       }, "1"));
       return d;
     })());
@@ -538,7 +583,8 @@
         if (r.오류) { 알림(r.오류, "#fc8"); return; }
         저장소박스 = r.목 || [];
         그리기();
-        알림("보낼 곳 " + 저장소박스.length + "건 — 고르고 「적용」", "#8d8");
+        알림("보낼 곳 " + 저장소박스.length + "건 — 고르고 「적용」"
+             + (r.길 ? " · " + r.길 : ""), "#8d8");
       });
     }
   }
