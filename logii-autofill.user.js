@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.9.0
+// @version      1.10.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -11,6 +11,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      api.github.com
 // @connect      127.0.0.1
@@ -74,13 +75,47 @@
 
   function 토큰() { return GM_getValue(TOKEN_KEY, "") || ""; }
 
+  // [사고 2026-09-14 · 사장님 「이 컴에서는 왜 활성화가 안되지 · 깃허브 암호
+  //  넣는 게 나온다」] 로지아이 화면은 https 인데 창구는 http 다. 그래서 그냥
+  //  fetch 로 부르면 크롬이 **섞인 내용**이라며 통째로 막는다(오류조차 안 뜬다).
+  //  그러면 옛길인 저장소로 넘어가 토큰을 물어보게 된다.
+  //  → 템퍼멍키의 제 통로(GM_xmlhttpRequest)로 부른다 — 이 통로는 막히지 않는다.
+  function 창구부르기(길2, 몸) {
+    return new Promise(function (풀림) {
+      if (typeof GM_xmlhttpRequest !== "function") { 풀림(null); return; }
+      try {
+        GM_xmlhttpRequest({
+          method: 몸 ? "POST" : "GET",
+          url: 창구 + 길2,
+          headers: 몸 ? { "Content-Type": "application/json" } : {},
+          data: 몸 ? JSON.stringify(몸) : undefined,
+          timeout: 6000,
+          onload: function (r) { 풀림(r); },
+          onerror: function () { 풀림(null); },
+          ontimeout: function () { 풀림(null); },
+        });
+      } catch (e) { 풀림(null); }
+    });
+  }
+
   // ① 창구에서 받는다 — 사장님 컴퓨터에서 늘 도는 자리다
   async function 창구에서받기() {
+    const r = await 창구부르기("/보낼것");
+    if (r && r.status >= 200 && r.status < 300) {
+      try {
+        const j = JSON.parse(r.responseText || "{}");
+        return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "",
+                 길: "창구" };
+      } catch (e) {
+        return { 오류: "창구 답을 못 읽었습니다" };
+      }
+    }
+    // 옛길 — 같은 집(http)에서 열었을 때만 된다
     try {
-      const r = await fetch(창구 + "/보낼것", { cache: "no-store" });
-      if (!r.ok) return { 오류: "창구가 " + r.status + " 를 줍니다" };
-      const j = await r.json();
-      return { 목: (j && j.보낼것) || [], 때: (j && j.갱신시각) || "",
+      const r2 = await fetch(창구 + "/보낼것", { cache: "no-store" });
+      if (!r2.ok) return { 오류: "창구가 " + r2.status + " 를 줍니다" };
+      const j2 = await r2.json();
+      return { 목: (j2 && j2.보낼것) || [], 때: (j2 && j2.갱신시각) || "",
                길: "창구" };
     } catch (e) {
       return { 오류: "창구에 못 닿았습니다" };
@@ -118,6 +153,8 @@
   async function 창구에쓴것알리기(상자들) {
     const oid들 = (상자들 || []).map((b) => b && b.oid).filter(Boolean);
     if (!oid들.length) return;
+    const r = await 창구부르기("/", { 로지쓴것: oid들 });
+    if (r && r.status >= 200 && r.status < 300) return;
     try {
       await fetch(창구 + "/", {
         method: "POST",
