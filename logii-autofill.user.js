@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.10.0
+// @version      1.11.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -479,8 +479,16 @@
       }, "1"));
       줄.appendChild(단추(b.붙박이 ? "고정" : "삭제", b.붙박이 ? "#3a3f47" : "#5a2b2b", () => {
         if (b.붙박이) { 알림("솔드아웃은 늘 같은 곳이라 지우지 않습니다"); return; }
+        // [사고 2026-09-14 · 사장님 「여기서 지웠는데 지워지지 않음」]
+        //  창구에서 온 박스는 손으로 만든 목록(cfg.박스)에 없다. 그래서 지워도
+        //  아무 일이 없었고 다시 그리면 그대로 있었다.
+        //  → **라벨을 「쓴것」에 넣어 감추고**, 창구에도 알려 다시 안 오게 한다.
         cfg.박스 = (cfg.박스 || []).filter((x) => x !== b);
+        const 쓴 = new Set(cfg.쓴것 || []);
+        쓴.add(b.라벨);
+        cfg.쓴것 = Array.from(쓴).slice(-300);
         저장(); 그리기(); 알림("지웠습니다");
+        try { 창구에쓴것알리기([b]); } catch (e) {}
       }, "1"));
       card.appendChild(제목); card.appendChild(밑); card.appendChild(줄);
       p.appendChild(card);
