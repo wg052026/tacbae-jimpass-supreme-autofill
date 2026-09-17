@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.4.2
+// @version      2.5.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -896,6 +896,53 @@
     GM_setValue(RESULT_KEY, r);
   }
 
+  const SELF_RAW_URL =
+    "https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/supreme-cart-community.user.js";
+
+  function myVersion() {
+    try {
+      return GM_info.script.version;
+    } catch (e) {
+      return "0";
+    }
+  }
+
+  function verIsNewer(a, b) {
+    const pa = String(a).split(".").map(Number);
+    const pb = String(b).split(".").map(Number);
+    for (let i = 0; i < 3; i++) {
+      const x = pa[i] || 0;
+      const y = pb[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+
+  async function fetchLatestVersion() {
+    try {
+      const txt = await fetch(SELF_RAW_URL + "?t=" + Date.now(), { cache: "no-store" }).then((r) => r.text());
+      const m = txt.match(/@version\s+([0-9.]+)/);
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function doUpdateCheck(loud) {
+    const latest = await fetchLatestVersion();
+    const mine = myVersion();
+    if (!latest) {
+      if (loud) setStatus("새 판을 확인하지 못했습니다.", true);
+      return;
+    }
+    if (verIsNewer(latest, mine)) {
+      setStatus("새 판 " + latest + " 이 있습니다. 설치 화면을 엽니다. (지금 " + mine + ")");
+      window.open(SELF_RAW_URL, "_blank");
+    } else if (loud) {
+      setStatus("최신입니다. (" + mine + ")");
+    }
+  }
+
   let runnerAttempt = 0;
   let cartLive = null;
 
@@ -973,14 +1020,22 @@
     list.style.cssText = "padding:8px 14px 4px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1;";
 
     const clearRow = document.createElement("div");
-    clearRow.style.cssText = "padding:8px 14px 0;";
+    clearRow.style.cssText = "padding:8px 14px 0;display:flex;gap:6px;";
     const clearBtn = document.createElement("button");
     clearBtn.textContent = "슈프림 장바구니 비우기";
     clearBtn.style.cssText =
-      "width:100%;height:32px;font-size:12px;border-radius:6px;cursor:pointer;" +
+      "flex:1;height:32px;font-size:12px;border-radius:6px;cursor:pointer;" +
       "background:transparent;border:1px solid #552626;color:#e24b4a;";
     clearBtn.addEventListener("click", clearSupremeCart);
+    const updBtn = document.createElement("button");
+    updBtn.textContent = "새 판 받기";
+    updBtn.title = "최신판 " + myVersion();
+    updBtn.style.cssText =
+      "height:32px;font-size:12px;border-radius:6px;cursor:pointer;padding:0 10px;" +
+      "background:transparent;border:1px solid #555;color:#ccc;";
+    updBtn.addEventListener("click", () => doUpdateCheck(true));
     clearRow.appendChild(clearBtn);
+    clearRow.appendChild(updBtn);
 
     const status = document.createElement("div");
     status.className = "scf-runner-status";
@@ -1543,6 +1598,7 @@
     renderRunnerRows();
     refreshCartLive();
     startRunnerRefresh();
+    doUpdateCheck(false);
     const q = await getQueue();
     if (!q || q.status !== "running") return;
     if (isAddToCartStage) {
