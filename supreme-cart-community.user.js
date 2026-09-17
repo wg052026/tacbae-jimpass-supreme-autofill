@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.3.0
+// @version      2.4.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -950,6 +950,16 @@
     list.className = "scf-runner-list";
     list.style.cssText = "padding:8px 14px 4px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1;";
 
+    const clearRow = document.createElement("div");
+    clearRow.style.cssText = "padding:8px 14px 0;";
+    const clearBtn = document.createElement("button");
+    clearBtn.textContent = "슈프림 장바구니 비우기";
+    clearBtn.style.cssText =
+      "width:100%;height:32px;font-size:12px;border-radius:6px;cursor:pointer;" +
+      "background:transparent;border:1px solid #552626;color:#e24b4a;";
+    clearBtn.addEventListener("click", clearSupremeCart);
+    clearRow.appendChild(clearBtn);
+
     const status = document.createElement("div");
     status.className = "scf-runner-status";
     status.style.cssText = "padding:10px 14px 12px;font-size:11px;color:#8f8;line-height:1.6;white-space:pre-line;";
@@ -957,10 +967,49 @@
     panel.appendChild(head);
     panel.appendChild(optRow);
     panel.appendChild(list);
+    panel.appendChild(clearRow);
     panel.appendChild(status);
     document.body.appendChild(panel);
     renderRunnerRows();
     return panel;
+  }
+
+  async function clearSupremeCart() {
+    let cart;
+    try {
+      cart = await fetch("/cart.js", { credentials: "same-origin", cache: "no-store" }).then((r) => r.json());
+    } catch (e) {
+      setStatus("슈프림 장바구니를 읽지 못했습니다.", true);
+      return;
+    }
+    const items = cart.items || [];
+    if (!items.length) {
+      setStatus("슈프림 장바구니가 이미 비어 있습니다.");
+      return;
+    }
+    const names = items.map((i) => i.product_title + (i.variant_title ? " / " + i.variant_title : "")).join("\n");
+    if (!window.confirm("슈프림 장바구니에 담긴 " + items.length + "개를 전부 비울까요?\n\n" + names)) return;
+
+    setStatus("비우는 중...");
+    let removed = 0;
+    for (const it of items) {
+      try {
+        await fetch("/cart/change.js", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ id: it.key || it.variant_id || it.id, quantity: 0 }),
+        });
+        removed++;
+      } catch (e) {}
+    }
+    let left = -1;
+    try {
+      const after = await fetch("/cart.js", { credentials: "same-origin", cache: "no-store" }).then((r) => r.json());
+      left = (after.items || []).length;
+    } catch (e) {}
+    if (left === 0) setStatus("슈프림 장바구니를 비웠습니다. (" + removed + "개)");
+    else setStatus("일부만 지워졌습니다. 남은 것 " + left + "개", true);
   }
 
   function setStatus(text, isError) {
@@ -1455,7 +1504,6 @@
 
   async function init() {
     createFloatingButton();
-    createClearCartButton();
     makePanel();
     renderRunnerRows();
     startRunnerRefresh();
