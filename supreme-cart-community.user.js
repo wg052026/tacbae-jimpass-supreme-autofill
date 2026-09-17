@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.1.1
+// @version      2.2.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -880,25 +880,202 @@
     return { type: "soldout", product: candidates[0] };
   }
 
+  const DATA_KEY = "scf_data";
+  const RESULT_KEY = "scf_cart_results";
+
+  function getCartData() {
+    return GM_getValue(DATA_KEY, null) || { carts: {} };
+  }
+  function getResults() {
+    return GM_getValue(RESULT_KEY, null) || {};
+  }
+  function saveResult(cartId, label) {
+    if (!cartId) return;
+    const r = getResults();
+    r[cartId] = { label, at: Date.now() };
+    GM_setValue(RESULT_KEY, r);
+  }
+
+  let runnerAttempt = 0;
+
   function makePanel() {
-    let panel = document.getElementById("scf-autobuy-panel");
+    let panel = document.getElementById("scf-runner");
     if (panel) return panel;
+
     panel = document.createElement("div");
-    panel.id = "scf-autobuy-panel";
+    panel.id = "scf-runner";
     panel.style.cssText =
-      "position:fixed;top:70px;right:16px;z-index:999999;width:280px;" +
-      "background:#111;color:#fff;border-radius:10px;padding:14px;" +
-      "font-family:-apple-system,sans-serif;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.4);";
-    panel.innerHTML = '<b style="font-size:13px;">Supreme 자동 구매</b><div class="scf-ab-status" style="margin-top:8px;font-size:12px;line-height:1.5;color:#8f8;"></div>';
+      "position:fixed;top:70px;right:16px;z-index:2147483647;width:320px;" +
+      "background:#111;color:#eee;border:1px solid #333;border-radius:12px;overflow:hidden;" +
+      "font-family:-apple-system,'Malgun Gothic',sans-serif;font-size:13px;" +
+      "box-shadow:0 4px 20px rgba(0,0,0,.45);max-height:80vh;display:flex;flex-direction:column;";
+
+    const head = document.createElement("div");
+    head.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #262626;";
+    const title = document.createElement("span");
+    title.textContent = "카트 실행";
+    title.style.cssText = "font-size:15px;font-weight:600;";
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "\u2715";
+    closeBtn.style.cssText = "background:none;border:none;color:#888;cursor:pointer;font-size:14px;";
+    closeBtn.addEventListener("click", () => panel.remove());
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+
+    const optRow = document.createElement("div");
+    optRow.style.cssText =
+      "display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #262626;font-size:12px;color:#aaa;";
+    const optLabel = document.createElement("span");
+    optLabel.textContent = "재시도 간격";
+    const optInput = document.createElement("input");
+    optInput.type = "number";
+    optInput.min = "0.1";
+    optInput.step = "0.1";
+    optInput.id = "scf-runner-interval";
+    optInput.value = (GM_getValue(RETRY_INTERVAL_KEY, 500) / 1000).toString();
+    optInput.style.cssText =
+      "width:58px;background:#000;border:1px solid #444;color:#eee;border-radius:4px;padding:5px 6px;font-size:12px;";
+    optInput.addEventListener("change", () => {
+      const sec = parseFloat(optInput.value);
+      GM_setValue(RETRY_INTERVAL_KEY, Number.isFinite(sec) && sec > 0 ? Math.round(sec * 1000) : 500);
+    });
+    const optUnit = document.createElement("span");
+    optUnit.textContent = "초";
+    optRow.appendChild(optLabel);
+    optRow.appendChild(optInput);
+    optRow.appendChild(optUnit);
+
+    const list = document.createElement("div");
+    list.className = "scf-runner-list";
+    list.style.cssText = "padding:8px 14px 4px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1;";
+
+    const status = document.createElement("div");
+    status.className = "scf-runner-status";
+    status.style.cssText = "padding:10px 14px 12px;font-size:11px;color:#8f8;line-height:1.6;white-space:pre-line;";
+
+    panel.appendChild(head);
+    panel.appendChild(optRow);
+    panel.appendChild(list);
+    panel.appendChild(status);
     document.body.appendChild(panel);
+    renderRunnerRows();
     return panel;
   }
 
   function setStatus(text, isError) {
     const panel = makePanel();
-    const s = panel.querySelector(".scf-ab-status");
+    const s = panel.querySelector(".scf-runner-status");
     s.style.color = isError ? "#ff8080" : "#8f8";
     s.textContent = text;
+  }
+
+  async function startCart(cartId) {
+    const data = getCartData();
+    const cart = data.carts[cartId];
+    if (!cart || !cart.items.length) {
+      window.alert("이 카트에 담긴 상품이 없습니다.");
+      return;
+    }
+    const items = cart.items.map((it) => ({
+      title: it.title,
+      color: it.color,
+      size: it.size,
+      status: "pending",
+    }));
+    await setQueue({ items, currentIndex: 0, status: "running", mode: "continuous", cartId });
+    location.href = TARGET_URL;
+  }
+
+  async function stopCart() {
+    const q = await getQueue();
+    if (!q) return;
+    q.status = "cancelled";
+    await setQueue(q);
+    setStatus("정지했습니다.");
+    renderRunnerRows();
+  }
+
+  function renderRunnerRows() {
+    const panel = document.getElementById("scf-runner");
+    if (!panel) return;
+    const list = panel.querySelector(".scf-runner-list");
+    if (!list) return;
+
+    const data = getCartData();
+    const results = getResults();
+    const q = GM_getValue(QUEUE_KEY, null);
+    const activeId = q && q.status === "running" ? String(q.cartId) : null;
+
+    list.textContent = "";
+    const ids = Object.keys(data.carts).sort((a, b) => Number(a) - Number(b));
+    if (!ids.length) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "color:#666;font-size:12px;padding:16px 0;text-align:center;";
+      empty.textContent = "담긴 카트가 없습니다.";
+      list.appendChild(empty);
+      return;
+    }
+
+    ids.forEach((id) => {
+      const cart = data.carts[id];
+      const isActive = activeId === String(id);
+
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;" +
+        (isActive ? "border:1px solid #3a6ea5;background:#101c2b;" : "border:1px solid #2a2a2a;");
+
+      const info = document.createElement("div");
+      info.style.cssText = "flex:1;min-width:0;";
+      const nameEl = document.createElement("p");
+      nameEl.textContent = cart.name;
+      nameEl.style.cssText = "margin:0;font-size:13px;font-weight:600;";
+      const descEl = document.createElement("p");
+      descEl.textContent = cart.items
+        .map((it) => [it.color, it.size].filter(Boolean).join(" \u00b7 ") || "컬러/사이즈 없음")
+        .join(", ");
+      descEl.style.cssText =
+        "margin:2px 0 0;font-size:11px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      info.appendChild(nameEl);
+      info.appendChild(descEl);
+
+      const badge = document.createElement("span");
+      badge.style.cssText = "font-size:11px;white-space:nowrap;";
+      if (isActive) {
+        badge.textContent = "찾는 중 " + runnerAttempt + "회";
+        badge.style.color = "#7ab8ff";
+      } else if (results[id]) {
+        const label = results[id].label;
+        badge.textContent = label;
+        badge.style.color = label === "담김" ? "#6ede9a" : "#ff9090";
+      }
+
+      const btn = document.createElement("button");
+      btn.style.cssText =
+        "height:30px;font-size:12px;padding:0 12px;border-radius:6px;cursor:pointer;background:transparent;" +
+        (isActive ? "border:1px solid #7a2626;color:#ff8080;" : "border:1px solid #555;color:#eee;");
+      btn.textContent = isActive ? "정지" : "시작";
+      btn.addEventListener("click", () => {
+        if (isActive) stopCart();
+        else startCart(id);
+      });
+
+      row.appendChild(info);
+      if (badge.textContent) row.appendChild(badge);
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  }
+
+  let runnerTimer = null;
+  function startRunnerRefresh() {
+    if (runnerTimer) clearInterval(runnerTimer);
+    runnerTimer = setInterval(() => {
+      const el = document.getElementById("scf-runner-interval");
+      if (el && document.activeElement === el) return;
+      renderRunnerRows();
+    }, 1000);
   }
 
   async function markItemStatus(index, status) {
@@ -929,10 +1106,20 @@
       if (!stillPending || graceExpired) {
         q.status = "done";
         await setQueue(q);
+        const addedCount = q.items.filter((it) => it.status === "added").length;
+        let label = "담김";
+        if (addedCount === 0) {
+          const soldout = q.items.some((it) => it.status === "soldout");
+          label = soldout ? "품절" : "못 찾음";
+        } else if (addedCount < q.items.length) {
+          label = "일부 담김";
+        }
+        saveResult(q.cartId, label);
+        renderRunnerRows();
         setStatus(
           graceExpired && stillPending
-            ? "유예시간이 지나 지금까지 담은 상품으로 checkout으로 이동합니다..."
-            : "모든 상품 처리를 완료했습니다. checkout으로 이동합니다..."
+            ? "유예시간이 지나 지금까지 담은 상품으로 결제 화면으로 넘어갑니다."
+            : "다 담았습니다. 결제 화면으로 넘어갑니다."
         );
         await clickCheckoutWithRetries();
         return;
@@ -998,6 +1185,7 @@
       const liveQ = await getQueue();
       if (!liveQ || liveQ.status !== "running") return;
       attempt++;
+      runnerAttempt = attempt;
 
       const products = attempt === 1 ? findProductsJson() || (await fetchProductsFresh()) : await fetchProductsFresh();
       result = products ? matchProduct(products, item) : { type: "notfound" };
@@ -1244,10 +1432,15 @@
       <div class="scf-fb-icon">
         <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg"><path d="M222.14 58.87A8 8 0 0 0 216 56H54.68L49.79 25.14A16 16 0 0 0 34 12H16a8 8 0 0 0 0 16h18l30.29 179.4A24 24 0 0 0 88 224h116a8 8 0 0 0 0-16H88a8 8 0 0 1-7.87-6.63L77.35 184h116.75a24 24 0 0 0 23.62-19.7L224 64.4a8 8 0 0 0-1.86-5.53M197.72 128h-127l-9.6-56H207.7z"/></svg>
       </div>
-      <span class="scf-fb-label">\uc7a5\ubc14\uad6c\ub2c8</span>
+      <span class="scf-fb-label">\uce74\ud2b8 \uc2e4\ud589</span>
     `;
     btn.addEventListener("click", () => {
-      window.open("https://www.supremecommunity.com/droplists/", "_blank");
+      const p = document.getElementById("scf-runner");
+      if (p) p.remove();
+      else {
+        makePanel();
+        renderRunnerRows();
+      }
     });
     document.body.appendChild(btn);
   }
@@ -1255,6 +1448,9 @@
   async function init() {
     createFloatingButton();
     createClearCartButton();
+    makePanel();
+    renderRunnerRows();
+    startRunnerRefresh();
     const q = await getQueue();
     if (!q || q.status !== "running") return;
     if (isAddToCartStage) {
