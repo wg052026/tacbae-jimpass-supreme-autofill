@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.0.0
+// @version      2.1.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -840,18 +840,34 @@
     }
   }
 
+  function colorMatches(pageColor, wantColor) {
+    if (!wantColor) return true;
+    const a = normalizeAlnum(pageColor);
+    const b = normalizeAlnum(wantColor);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    // "Grey" 로 적었을 때 "Heather Grey"·"Ash Grey" 도 같은 색으로 본다
+    return a.includes(b) || b.includes(a);
+  }
+
   function matchProduct(products, item) {
     const nTitle = normalizeTitle(item.title);
     const matches = products.filter((p) => {
       const pTitle = normalizeTitle(p.title);
       return pTitle === nTitle || nTitle.includes(pTitle) || pTitle.includes(nTitle);
     });
-    const colorMatches = matches.filter((p) => textsMatch(p.color, item.color));
-    const candidates = colorMatches.length ? colorMatches : matches;
 
-    if (!candidates.length) {
+    if (!matches.length) {
       return { type: "notfound" };
     }
+
+    // 컬러를 적어 두었으면 그 컬러만 본다. 없으면 다른 컬러로 넘어가지 않고 없는 것으로 친다.
+    let candidates = matches;
+    if (item.color) {
+      candidates = matches.filter((p) => colorMatches(p.color, item.color));
+      if (!candidates.length) return { type: "notfound" };
+    }
+
     for (const product of candidates) {
       const variant = (product.variants || []).find((v) => v.available && sizesMatch(item.size, v.public_title));
       if (variant) return { type: "found", product, variant };
