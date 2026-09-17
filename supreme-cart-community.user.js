@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.4.1
+// @version      2.4.2
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -1009,8 +1009,6 @@
       setStatus("슈프림 장바구니가 이미 비어 있습니다.");
       return;
     }
-    const names = items.map((i) => i.product_title + (i.variant_title ? " / " + i.variant_title : "")).join("\n");
-    if (!window.confirm("슈프림 장바구니에 담긴 " + items.length + "개를 전부 비울까요?\n\n" + names)) return;
 
     setStatus("비우는 중...");
     let removed = 0;
