@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.2.0
+// @version      2.3.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -1031,6 +1031,13 @@
       const nameEl = document.createElement("p");
       nameEl.textContent = cart.name;
       nameEl.style.cssText = "margin:0;font-size:13px;font-weight:600;";
+
+      const titleEl = document.createElement("p");
+      titleEl.textContent = cart.items.map((it) => it.title || "(상품명 없음)").join(", ");
+      titleEl.title = titleEl.textContent;
+      titleEl.style.cssText =
+        "margin:2px 0 0;font-size:11.5px;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+
       const descEl = document.createElement("p");
       descEl.textContent = cart.items
         .map((it) => [it.color, it.size].filter(Boolean).join(" \u00b7 ") || "컬러/사이즈 없음")
@@ -1038,6 +1045,7 @@
       descEl.style.cssText =
         "margin:2px 0 0;font-size:11px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
       info.appendChild(nameEl);
+      info.appendChild(titleEl);
       info.appendChild(descEl);
 
       const badge = document.createElement("span");
