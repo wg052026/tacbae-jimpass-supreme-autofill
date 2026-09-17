@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.5.2
+// @version      1.5.3
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -24,7 +24,7 @@
     panelEl = document.createElement("div");
     panelEl.id = "supreme-af-status";
     panelEl.style.cssText =
-      "position:fixed;top:12px;right:12px;z-index:2147483647;background:#111;color:#8f8;" +
+      "position:fixed;top:12px;left:12px;z-index:2147483647;background:#111;color:#8f8;" +
       "font-family:monospace;font-size:11px;line-height:1.5;padding:8px 10px;border-radius:8px;" +
       "max-width:280px;max-height:40vh;overflow-y:auto;box-shadow:0 2px 10px rgba(0,0,0,.4);white-space:pre-wrap;";
     document.body.appendChild(panelEl);
@@ -43,7 +43,7 @@
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.5.2" });
+  sendDiag({ step: "script_loaded", v: "1.5.3" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
