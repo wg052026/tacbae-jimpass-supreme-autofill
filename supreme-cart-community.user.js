@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.4.0
+// @version      2.4.1
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -897,6 +897,28 @@
   }
 
   let runnerAttempt = 0;
+  let cartLive = null;
+
+  async function refreshCartLive() {
+    try {
+      cartLive = await fetch("/cart.js", { credentials: "same-origin", cache: "no-store" }).then((r) => r.json());
+    } catch (e) {
+      cartLive = null;
+    }
+    renderRunnerRows();
+  }
+
+  // 슈프림 장바구니에 이 상품이 실제로 들어 있는지 본다
+  function isItemInSupremeCart(item) {
+    if (!cartLive || !cartLive.items) return false;
+    return cartLive.items.some((ci) => {
+      if (normalizeTitle(ci.product_title || "") !== normalizeTitle(item.title || "")) return false;
+      if (item.size && !sizesMatch(item.size, ci.variant_title || "")) return false;
+      const style = (ci.properties && (ci.properties.Style || ci.properties.style)) || "";
+      if (item.color && style && !colorMatches(style, item.color)) return false;
+      return true;
+    });
+  }
 
   function makePanel() {
     let panel = document.getElementById("scf-runner");
@@ -1008,6 +1030,7 @@
       const after = await fetch("/cart.js", { credentials: "same-origin", cache: "no-store" }).then((r) => r.json());
       left = (after.items || []).length;
     } catch (e) {}
+    await refreshCartLive();
     if (left === 0) setStatus("슈프림 장바구니를 비웠습니다. (" + removed + "개)");
     else setStatus("일부만 지워졌습니다. 남은 것 " + left + "개", true);
   }
@@ -1032,6 +1055,9 @@
       size: it.size,
       status: "pending",
     }));
+    const r = getResults();
+    delete r[cartId];
+    GM_setValue(RESULT_KEY, r);
     await setQueue({ items, currentIndex: 0, status: "running", mode: "continuous", cartId });
     location.href = TARGET_URL;
   }
@@ -1099,13 +1125,20 @@
 
       const badge = document.createElement("span");
       badge.style.cssText = "font-size:11px;white-space:nowrap;";
+      const inCount = cart.items.filter(isItemInSupremeCart).length;
+      const saved = results[id] ? results[id].label : null;
       if (isActive) {
         badge.textContent = "찾는 중 " + runnerAttempt + "회";
         badge.style.color = "#7ab8ff";
-      } else if (results[id]) {
-        const label = results[id].label;
-        badge.textContent = label;
-        badge.style.color = label === "담김" ? "#6ede9a" : "#ff9090";
+      } else if (inCount > 0 && inCount === cart.items.length) {
+        badge.textContent = "담김";
+        badge.style.color = "#6ede9a";
+      } else if (inCount > 0) {
+        badge.textContent = "일부 담김";
+        badge.style.color = "#e8c66a";
+      } else if (saved && saved !== "담김" && saved !== "일부 담김") {
+        badge.textContent = saved;
+        badge.style.color = "#ff9090";
       }
 
       const btn = document.createElement("button");
@@ -1126,12 +1159,16 @@
   }
 
   let runnerTimer = null;
+  let runnerTick = 0;
   function startRunnerRefresh() {
     if (runnerTimer) clearInterval(runnerTimer);
+    runnerTick = 0;
     runnerTimer = setInterval(() => {
       const el = document.getElementById("scf-runner-interval");
       if (el && document.activeElement === el) return;
-      renderRunnerRows();
+      runnerTick++;
+      if (runnerTick % 5 === 0) refreshCartLive();
+      else renderRunnerRows();
     }, 1000);
   }
 
@@ -1506,6 +1543,7 @@
     createFloatingButton();
     makePanel();
     renderRunnerRows();
+    refreshCartLive();
     startRunnerRefresh();
     const q = await getQueue();
     if (!q || q.status !== "running") return;
