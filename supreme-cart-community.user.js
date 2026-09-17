@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.1.0
+// @version      2.1.1
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -840,10 +840,15 @@
     }
   }
 
+  function normalizeColorWord(s) {
+    // 슈프림이 grey / gray 를 섞어 쓰므로 한쪽으로 맞춘다
+    return normalizeAlnum(s).replace(/grey/g, "gray");
+  }
+
   function colorMatches(pageColor, wantColor) {
     if (!wantColor) return true;
-    const a = normalizeAlnum(pageColor);
-    const b = normalizeAlnum(wantColor);
+    const a = normalizeColorWord(pageColor);
+    const b = normalizeColorWord(wantColor);
     if (!a || !b) return false;
     if (a === b) return true;
     // "Grey" 로 적었을 때 "Heather Grey"·"Ash Grey" 도 같은 색으로 본다
