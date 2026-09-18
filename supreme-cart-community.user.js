@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.5.0
+// @version      2.6.0
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -345,7 +345,7 @@
     soldout: "품절",
     notfound: "못 찾음",
     error: "오류",
-    skipped_no_info: "컬러/사이즈 없음(건너뜀)",
+    skipped_no_info: "컬러 없음(건너뜀)",
   };
 
   function renderBuyStatus(container) {
@@ -801,12 +801,22 @@
     return list;
   }
 
+  // 사이즈가 없는 상품(비니·모자 등)은 슈프림이 "OS" 한 칸만 둔다
+  const ONE_SIZE_WORDS = ["os", "onesize", "one", "na", "default", "freesize", "free"];
+
+  function isOneSizeTitle(t) {
+    return ONE_SIZE_WORDS.includes(normalizeAlnum(t));
+  }
+
   function sizesMatch(userSize, variantTitle) {
+    // 사이즈를 안 적었으면 "사이즈 없는 상품"으로 보고 OS 칸을 받아들인다
+    if (!String(userSize || "").trim()) return isOneSizeTitle(variantTitle);
     const candidates = sizeCandidates(userSize);
     return candidates.some((c) => {
       const a2 = normalizeAlnum(c);
       const b2 = normalizeAlnum(variantTitle);
       if (a2 === b2) return true;
+      if (isOneSizeTitle(c) && isOneSizeTitle(b2)) return true;
       return a2.replace(/^us/, "") === b2.replace(/^us/, "");
     });
   }
@@ -1317,8 +1327,8 @@
     const isFirstItem = q.currentIndex === 0;
     const timeoutMs = isFirstItem ? FIRST_ITEM_TIMEOUT_MS : 0;
 
-    if (!item.color || !item.size) {
-      setStatus(`"${item.title}"은(는) 컬러/사이즈가 비어있어 건너뜁니다.`, true);
+    if (!item.color) {
+      setStatus(`"${item.title}"은(는) 컬러가 비어있어 건너뜁니다.`, true);
       await markItemStatus(q.currentIndex, "skipped_no_info");
       await goToNextOrFinish(await getQueue());
       return;
@@ -1384,14 +1394,14 @@
         }
       }
 
-      const readyIdx = pendingIdx.filter((i) => q.items[i].color && q.items[i].size);
+      const readyIdx = pendingIdx.filter((i) => q.items[i].color);
       for (const i of pendingIdx) {
-        if ((!q.items[i].color || !q.items[i].size) && q.items[i].status !== "skipped_no_info") {
+        if (!q.items[i].color && q.items[i].status !== "skipped_no_info") {
           await markItemStatus(i, "skipped_no_info");
         }
       }
       if (!readyIdx.length) {
-        setStatus("모든 상품에 컬러/사이즈가 비어있어 진행할 항목이 없습니다.", true);
+        setStatus("모든 상품에 컬러가 비어있어 진행할 항목이 없습니다.", true);
         await goToNextOrFinish(await getQueue());
         return;
       }
