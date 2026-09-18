@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.6.0
+// @version      1.6.1
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -32,6 +32,8 @@
   }
 
   const logLines = [];
+  let hideTimer = null;
+
   function sendDiag(payload) {
     const text = Object.entries(payload)
       .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
@@ -39,11 +41,19 @@
     logLines.push(text);
     if (logLines.length > 30) logLines.shift();
     try {
-      ensurePanel().textContent = logLines.join("\n");
+      const p = ensurePanel();
+      p.textContent = logLines.join("\n");
+      p.style.display = "block";
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        try {
+          p.style.display = "none";
+        } catch (e) {}
+      }, 5000);
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.6.0" });
+  sendDiag({ step: "script_loaded", v: "1.6.1" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -569,8 +579,16 @@
     GM_registerMenuCommand("지금 강제로 다시 채우기", () => {
       run();
     });
-    GM_registerMenuCommand("상태창 숨기기", () => {
-      if (panelEl) panelEl.remove();
+    GM_registerMenuCommand("진행 기록 다시 보기", () => {
+      const p = ensurePanel();
+      p.textContent = logLines.join("\n") || "아직 기록이 없습니다.";
+      p.style.display = "block";
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        try {
+          p.style.display = "none";
+        } catch (e) {}
+      }, 15000);
     });
   }
 
