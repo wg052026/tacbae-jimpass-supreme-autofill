@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme Community 장바구니
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      2.6.0
+// @version      2.6.1
 // @description  supremecommunity.com에서 장바구니를 구성하고, shop/us.supreme.com에서 그대로 자동으로 찾아 담습니다. (한 스크립트로 통합 — 저장소를 공유해야 동작함)
 // @author       wg052026
 // @match        https://www.supremecommunity.com/*
@@ -1462,25 +1462,40 @@
 
     setStatus(target ? `${target.sizeLabel} 사이즈 선택 중...` : "처리 중...");
 
+    // 사이즈 없는 상품(비니·모자 등)은 화면에 사이즈 선택창이 아예 없다.
+    // 선택창이든 담기 버튼이든 먼저 나타나는 것을 기다린다.
     const start = Date.now();
     let select = null;
+    let addBtnEarly = null;
     while (Date.now() - start < 8000) {
       select = document.querySelector('select[data-testid="size-dropdown"]');
       if (select) break;
+      addBtnEarly = document.querySelector('button[data-testid="add-to-cart-button"]');
+      if (addBtnEarly) break;
+      if (document.querySelector('p[data-testid="sold-out-product-message"]')) break;
+      if (document.querySelector('[data-testid="product-in-cart-message"]')) break;
       await new Promise((r) => setTimeout(r, 200));
     }
-    if (!select) {
-      setStatus("사이즈 선택창을 찾지 못했습니다.", true);
+
+    if (!select && !addBtnEarly &&
+        !document.querySelector('p[data-testid="sold-out-product-message"]') &&
+        !document.querySelector('[data-testid="product-in-cart-message"]')) {
+      setStatus("상품 화면이 열리지 않았습니다.", true);
       await markItemStatus(q.currentIndex, "error");
       await goToNextOrFinish(await getQueue());
       return;
     }
 
-    if (target && target.variantId) {
-      select.value = String(target.variantId);
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+    if (select) {
+      if (target && target.variantId) {
+        select.value = String(target.variantId);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    } else {
+      setStatus("사이즈가 없는 상품입니다. 바로 담습니다.");
+      await new Promise((r) => setTimeout(r, 200));
     }
-    await new Promise((r) => setTimeout(r, 300));
 
     const soldOut = document.querySelector('p[data-testid="sold-out-product-message"]');
     if (soldOut) {
