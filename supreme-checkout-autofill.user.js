@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Supreme 결제폼 자동입력 (KR/US)
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.5.3
+// @version      1.6.0
 // @description  shop.supreme.com(KR) / us.supreme.com(US) 체크아웃 배송지·연락처 자동입력. 카드정보는 브라우저 보안정책(isTrusted)상 자동입력 불가하여 포함하지 않음.
 // @author       wg052026
 // @match        https://shop.supreme.com/checkouts/*
@@ -43,7 +43,7 @@
     } catch (e) {}
     console.log("[Supreme 자동입력]", text);
   }
-  sendDiag({ step: "script_loaded", v: "1.5.3" });
+  sendDiag({ step: "script_loaded", v: "1.6.0" });
 
   // ── 저장 키 ──────────────────────────────────────────────────
   const KEY_COMMON = "supreme_common"; // email, givenName, familyName
@@ -242,10 +242,11 @@
       { selector: "input[autocomplete~=given-name]", value: c.givenName || "" },
       { selector: "input[autocomplete~=family-name]", value: c.familyName || "" },
       { selector: "input[autocomplete~=postal-code]", value: kr.postalCode || "" },
+      { selector: "select[name=zone]", value: kr.zone || "" },
       { selector: "input[autocomplete~=address-level2]", value: kr.city || "" },
       { selector: "input[autocomplete~=address-line1]", value: kr.address1 || "" },
       { selector: "input[autocomplete~=address-line2]", value: kr.address2 || "" },
-      { selector: "input[autocomplete*=tel]", value: kr.phone || "" },
+      { selector: "input[name=phone]", value: kr.phone || "" },
       { selector: "#PaymentAdditionalField-Cards-PersonalCardDateOfBirth", value: kr.birthDate || "" },
       { selector: "input[name='Personal Customs Code']", value: kr.customsCode || "" },
       { labelText: "save this information for next time", value: "true" },
@@ -253,6 +254,26 @@
       { labelText: "i have read and agree to the supreme", value: "true" },
     ];
   }
+
+  const KR_ZONES = [
+    ["KR-11", "서울"],
+    ["KR-26", "부산"],
+    ["KR-27", "대구"],
+    ["KR-28", "인천"],
+    ["KR-29", "광주"],
+    ["KR-30", "대전"],
+    ["KR-31", "울산"],
+    ["KR-50", "세종"],
+    ["KR-41", "경기"],
+    ["KR-42", "강원"],
+    ["KR-43", "충북"],
+    ["KR-44", "충남"],
+    ["KR-45", "전북"],
+    ["KR-46", "전남"],
+    ["KR-47", "경북"],
+    ["KR-48", "경남"],
+    ["KR-49", "제주"],
+  ];
 
   function buildUsFields(profile) {
     const c = g(KEY_COMMON, {});
@@ -370,6 +391,26 @@
 
     sectionTitle(box, "한국(KR) 배송");
     const iKrPostal = inputRow(box, "우편번호", kr.postalCode);
+
+    const zoneWrap = el("div", "margin-bottom:8px;");
+    zoneWrap.appendChild(el("label", "display:block;font-size:11px;color:#aaa;margin-bottom:3px;", "도/시 (province)"));
+    const iKrZone = document.createElement("select");
+    iKrZone.style.cssText =
+      "width:100%;box-sizing:border-box;background:#000;color:#eee;border:1px solid #444;border-radius:5px;padding:6px 7px;font-size:12px;";
+    const blankOpt = document.createElement("option");
+    blankOpt.value = "";
+    blankOpt.textContent = "고르지 않음";
+    iKrZone.appendChild(blankOpt);
+    KR_ZONES.forEach(([v, n]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = n;
+      if (kr.zone === v) o.selected = true;
+      iKrZone.appendChild(o);
+    });
+    zoneWrap.appendChild(iKrZone);
+    box.appendChild(zoneWrap);
+
     const iKrCity = inputRow(box, "시/군/구 (영문, 예: hwaseong-si)", kr.city);
     const iKrAddr1 = inputRow(box, "주소1 (영문 도로명)", kr.address1);
     const iKrAddr2 = inputRow(box, "주소2 (상세)", kr.address2);
@@ -424,6 +465,7 @@
       s(KEY_COMMON, { email: iEmail.value.trim(), givenName: iGiven.value.trim(), familyName: iFamily.value.trim() });
       s(KEY_KR, {
         postalCode: iKrPostal.value.trim(),
+        zone: iKrZone.value,
         city: iKrCity.value.trim(),
         address1: iKrAddr1.value.trim(),
         address2: iKrAddr2.value.trim(),
