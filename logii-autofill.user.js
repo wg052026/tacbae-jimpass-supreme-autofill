@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         로지아이 택배예약 자동입력
 // @namespace    https://github.com/wg052026/tacbae-jimpass-supreme-autofill
-// @version      1.11.0
+// @version      1.12.0
 // @description  로지아이(logii.com) 편의점 택배예약 — 메인에서 받는사람 화면까지 자동, 보낼 곳을 박스로 만들어 두고 골라 넣기, 여러 건 한 번에, 물품·대형박스 자동
 // @author       wg052026
 // @match        https://www.logii.com/
@@ -145,7 +145,11 @@
     const a = await 창구에서받기();
     if (!a.오류) return a;
     const b = await 깃허브에서받기();
-    if (!b.오류) { b.말 = "창구가 안 되어 저장소에서 받았습니다"; return b; }
+    if (!b.오류) {
+      b.말 = "창구가 안 되어 저장소에서 받았습니다";
+      b.창구오류 = a.오류;   // 왜 창구에 못 닿았는지 화면에 알려 준다
+      return b;
+    }
     return { 오류: a.오류 + " · " + b.오류 };
   }
 
@@ -441,7 +445,10 @@
   function 그리기() {
     const p = 틀(); p.innerHTML = "";
     const t = document.createElement("div");
-    t.textContent = "로지아이 자동입력 v1.8.0";
+    // 판 번호는 손으로 적지 않는다 — 머리글에 적힌 것을 그대로 읽어 온다
+    let 판 = "";
+    try { 판 = (GM_info && GM_info.script && GM_info.script.version) || ""; } catch (e) {}
+    t.textContent = "로지아이 자동입력" + (판 ? " v" + 판 : "");
     t.style.cssText = "font-size:13px;font-weight:700;margin-bottom:8px;color:#fff;";
     p.appendChild(t);
     상태줄 = document.createElement("div");
@@ -628,8 +635,11 @@
         if (r.오류) { 알림(r.오류, "#fc8"); return; }
         저장소박스 = r.목 || [];
         그리기();
+        const 옛길 = r.길 === "저장소";
         알림("보낼 곳 " + 저장소박스.length + "건 — 고르고 「적용」"
-             + (r.길 ? " · " + r.길 : ""), "#8d8");
+             + (r.길 ? " · " + r.길 : "")
+             + (옛길 && r.창구오류 ? " (새 주문 안 옴 — " + r.창구오류 + ")" : ""),
+             옛길 ? "#fc8" : "#8d8");
       });
     }
   }
