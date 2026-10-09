@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.4.3
+// @version      0.5.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -195,14 +195,28 @@
     const m = (location.href.match(/\/cafes\/29931376\/menus\/(\d+)/) || [])[1];
     return m === '25' ? '미국' : m === '26' ? '일본' : '';
   };
+  // 사이트별 진행: my=1번 내 카페, jim=2·3번 짐패스 카페, site=4번 짐패스 사이트
+  const siteKey = () =>
+    location.hostname === 'www.jimpass.com' ? 'site' : location.href.includes('/cafes/' + JIM_CAFE) ? 'jim' : 'my';
+  const jget = (k, d) => { try { return JSON.parse(GM_getValue(k, d)); } catch (e) { return JSON.parse(d); } };
+  const doneList = (key) => jget('done_' + key, '[]');
+  const markDone = (key, no) => {
+    const d = doneList(key);
+    if (!d.includes(no)) { d.push(no); GM_setValue('done_' + key, JSON.stringify(d)); }
+    log('완료 기록', key, no);
+  };
+  const urlOf = (no) => jget('urls', '{}')[no] || '';
+  // 이 사이트에서 아직 안 올린 후기를 고릅니다 (고른 후기가 맞으면 그것, 아니면 첫 번째)
   const cur = () => {
     const all = loadAll();
-    const sel = all[GM_getValue('idx', 0)];
+    const key = siteKey();
+    const done = doneList(key);
     const c = boardCountry();
-    if (!c || (sel && sel.title.includes(c))) return sel;
-    // 짐패스 카페 게시판 나라와 맞는 후기를 자동으로 고릅니다
-    const i = all.findIndex((r) => r.title.includes(c));
-    return i >= 0 ? all[i] : sel;
+    const ok = (r) =>
+      r && !done.includes(r.no) && (!c || r.title.includes(c)) && (key !== 'site' || doneList('my').includes(r.no));
+    const sel = all[GM_getValue('idx', 0)];
+    if (ok(sel)) return sel;
+    return all.find(ok) || null;
   };
   const shopOf = (title) =>
     /슈프림/.test(title) ? '슈프림' : /캐피탈/.test(title) ? '캐피탈' : '';
@@ -293,6 +307,7 @@
 
   /* ---------- 사이트별 채우기 ---------- */
   async function fillMyCafe(r) {
+    GM_setValue('pending_my', r.no);
     await fillTitle(r.title);
     const ed = editorEl();
     caretAtEnd(ed);
@@ -477,6 +492,7 @@
   }
 
   async function fillJimCafe(r, report) {
+    GM_setValue('pending_jim', r.no);
     log('채우기 시작(짐패스 카페)', r.no);
     await fillTitle(r.title);
     if (GM_getValue('lastApplied', '') === r.no && docText().includes(r.no)) {
@@ -533,10 +549,11 @@
   }
 
   async function fillJimSite(r) {
+    GM_setValue('pending_site', r.no);
     const t = document.querySelector('input[type="text"][name*="title"], input[type="text"]');
     if (!t) throw new Error('제목 칸을 못 찾았습니다');
     setNative(t, r.title);
-    const url = GM_getValue('lastCafeUrl', '');
+    const url = urlOf(r.no);
     const html =
       (url ? `<p>카페 후기: <a href="${url}" target="_blank">${url}</a></p>` : '') +
       `<p>${r.body}</p><p>${r.youtube}</p>`;
@@ -547,8 +564,25 @@
 
   /* ---------- 글 올린 뒤 주소 저장 (내 카페 글 보기 화면) ---------- */
   function rememberCafeUrl() {
-    if (location.href.includes('/cafes/' + MY_CAFE) && /\/articles\/\d+/.test(location.pathname) && !/write/.test(location.pathname)) {
-      GM_setValue('lastCafeUrl', location.origin + location.pathname);
+    const isView = /\/articles\/\d+/.test(location.pathname) && !/write/.test(location.pathname);
+    if (location.href.includes('/cafes/' + MY_CAFE) && isView) {
+      const no = GM_getValue('pending_my', '');
+      if (no) {
+        const u = jget('urls', '{}');
+        u[no] = location.origin + location.pathname;
+        GM_setValue('urls', JSON.stringify(u));
+        GM_setValue('lastCafeUrl', u[no]);
+        markDone('my', no);
+        GM_setValue('pending_my', '');
+      }
+    }
+    if (location.href.includes('/cafes/' + JIM_CAFE) && isView) {
+      const no = GM_getValue('pending_jim', '');
+      if (no) { markDone('jim', no); GM_setValue('pending_jim', ''); }
+    }
+    if (location.hostname === 'www.jimpass.com' && /\/article\/(view|list)\//.test(location.pathname)) {
+      const no = GM_getValue('pending_site', '');
+      if (no) { markDone('site', no); GM_setValue('pending_site', ''); }
     }
   }
 
@@ -573,6 +607,7 @@
       <select id="lp-sel" style="width:100%;margin:4px 0"></select>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
+      <button id="lp-done" style="width:100%;margin:2px 0">✔ 이 후기 완료/취소 표시</button>
       <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
     document.body.appendChild(box);
@@ -583,7 +618,11 @@
       const all = loadAll();
       $('lp-sel').innerHTML = all.map((r, i) => `<option value="${i}">${r.no} ${r.title.slice(-24)}</option>`).join('');
       $('lp-sel').value = GM_getValue('idx', 0);
-      $('lp-st').textContent = all.length ? all.length + '건' : '(받아오기를 누르세요)';
+      const dn = doneList(siteKey());
+      $('lp-sel').innerHTML = all.map((r, i) => `<option value="${i}">${dn.includes(r.no) ? '✔ ' : ''}${r.no} ${r.title.slice(-24)}</option>`).join('');
+      const c0 = cur();
+      $('lp-sel').value = c0 ? all.indexOf(c0) : GM_getValue('idx', 0);
+      $('lp-st').textContent = all.length ? '이 사이트 ' + all.filter((r) => dn.includes(r.no)).length + '/' + all.length + ' 완료' : '(받아오기를 누르세요)';
     };
     refresh();
     const getLatest = async () => {
@@ -593,6 +632,17 @@
     $('lp-get').onclick = getLatest;
     getLatest();
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
+    $('lp-done').onclick = () => {
+      const all = loadAll();
+      const r = all[$('lp-sel').value];
+      if (!r) return;
+      const key = siteKey();
+      const d = doneList(key);
+      const nd = d.includes(r.no) ? d.filter((x) => x !== r.no) : d.concat(r.no);
+      GM_setValue('done_' + key, JSON.stringify(nd));
+      refresh();
+      msg(r.no + (nd.includes(r.no) ? ' 완료로 표시' : ' 완료 표시 취소'));
+    };
     $('lp-diag').onclick = async () => {
       const t = diagnose() + '\n\n=== 네트워크 ===\n' + NET.join('\n') + '\n\n=== 로그 ===\n' + LOG.join('\n');
       try { await navigator.clipboard.writeText(t); msg('진단 내용을 복사했습니다. 대화창에 붙여넣어 보내 주세요'); }
