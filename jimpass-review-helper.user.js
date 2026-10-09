@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.4.1
+// @version      0.4.2
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -474,6 +474,15 @@
       catch (e) { report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
       return;
     }
+    if (Date.now() - GM_getValue('autofillAt', 0) > 60000) {
+      // 이 화면은 다른 후기로 열렸습니다. 새로고침하면 고른 후기로 양식이 채워진 채 열립니다.
+      report('고른 후기로 양식을 다시 받기 위해 새로고침합니다…');
+      GM_setValue('autofillAt', Date.now());
+      log('새로고침 후 자동 채우기 예약', r.no);
+      await sleep(300);
+      location.reload();
+      return;
+    }
     snap('제목 입력 뒤');
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
@@ -585,6 +594,9 @@
         msg('본문을 지웠습니다 (' + how + ')');
       } catch (err) { msg('실패: ' + err.message); console.error('[후기도우미]', err); }
     };
+    if (m === 'jimcafe' && Date.now() - GM_getValue('autofillAt', 0) < 40000) {
+      setTimeout(() => { log('새로고침 뒤 자동 채우기 시작'); $('lp-fill').click(); }, 3500);
+    }
     $('lp-fill').onclick = async () => {
       const r = cur();
       if (!r) return msg('최신 후기 받아오기를 먼저 누르세요');
