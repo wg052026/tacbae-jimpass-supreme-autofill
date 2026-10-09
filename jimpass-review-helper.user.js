@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.2
+// @version      0.3.3
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -21,6 +21,34 @@
   const MY_CAFE = '11298080';
   const JIM_CAFE = '29931376';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /* ---------- 자세한 로그 (복사해서 보낼 수 있게 모아 둡니다) ---------- */
+  const LOG = [];
+  const t0 = Date.now();
+  function log(...a) {
+    const line = '+' + String(Date.now() - t0).padStart(6, ' ') + 'ms ' + a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+    LOG.push(line);
+    if (LOG.length > 600) LOG.shift();
+    console.log('[후기도우미]', line);
+  }
+  // 에디터가 어떤 신호를 받고 막는지 기록합니다
+  let spyOn = false;
+  ['keydown', 'beforeinput', 'input', 'paste', 'cut', 'drop'].forEach((type) =>
+    document.addEventListener(type, (ev) => {
+      if (!spyOn) return;
+      const info = { type: ev.type, 진짜입력: ev.isTrusted, 대상: (ev.target && (ev.target.className || ev.target.tagName) || '').toString().slice(0, 30), key: ev.key, inputType: ev.inputType };
+      setTimeout(() => log('신호', info, '막힘=' + ev.defaultPrevented), 0);
+    }, true)
+  );
+  let mutCount = 0;
+  try {
+    new MutationObserver((m) => { mutCount += m.length; }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  } catch (e) {}
+  const snap = (label) => {
+    const c = document.querySelector('.se-content');
+    const sel = getSelection();
+    log(label, { 본문글자: c ? c.innerText.replace(/\s+/g, '').length : -1, 문단수: document.querySelectorAll('.se-text-paragraph').length, 선택글자: sel.toString().length, 활성: (document.activeElement && (document.activeElement.className || document.activeElement.tagName) || '').toString().slice(0, 30), 화면변경누적: mutCount });
+  };
 
   /* ---------- 후기 txt 읽기 ---------- */
   // 한 건: [제목, 신청서번호, 본문, 유튜브, 해시태그줄, 글자수줄] (빈 줄은 건너뜀)
@@ -298,23 +326,29 @@
       ['글자 덮어쓰기', () => { selAll(); document.execCommand('insertText', false, ' '); }],
       ['틀 바꾸기', () => { selAll(); document.execCommand('insertHTML', false, '<p><br></p>'); }],
     ];
-    const log = [];
-    log.push('처음 ' + docText().replace(/\s+/g, '').length + '자');
+    const logArr = [];
+    logArr.push('처음 ' + docText().replace(/\s+/g, '').length + '자');
+    snap('지우기 시작');
+    spyOn = true;
     for (const [name, run] of methods) {
       if (bodyEmpty() || countForm() === 0 && docText().trim().length < 3) return name === methods[0][0] ? '이미 비어 있음' : '이미 비어 있음';
       try { await run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
       await sleep(500);
       const left = docText().replace(/\s+/g, '').length;
       console.log('[후기도우미] 지우기 시도', name, '남은 글자', left);
-      log.push(name + ' ' + left);
-      if (left < 3) return name;
+      logArr.push(name + ' ' + left);
+      snap('지우기 시도 ' + name);
+      if (left < 3) { spyOn = false; log('지우기 성공', name); return name; }
     }
     const rest = docText().replace(/\s+/g, ' ').trim().slice(0, 30);
-    throw new Error('본문을 자동으로 못 지웠습니다 [' + log.join(' / ') + '] 남은 글: "' + rest + '" 본문을 눌러 Ctrl+A, Delete 로 직접 지워 주세요');
+    spyOn = false;
+    throw new Error('본문을 자동으로 못 지웠습니다 [' + logArr.join(' / ') + '] 남은 글: "' + rest + '" 본문을 눌러 Ctrl+A, Delete 로 직접 지워 주세요');
   }
 
   async function fillJimCafe(r, report) {
+    log('채우기 시작(짐패스 카페)', r.no);
     await fillTitle(r.title);
+    snap('제목 입력 뒤');
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
     console.log('[후기도우미] 시작 전 양식 개수', countForm());
@@ -334,6 +368,8 @@
       }
     }
     report('양식 새로 넣는 중…');
+    snap('양식 넣기 전');
+    spyOn = true;
     ed.focus();
     pasteText(ed, jimForm(r));
     await sleep(700);
@@ -341,7 +377,8 @@
       document.execCommand('insertText', false, jimForm(r));
       await sleep(500);
     }
-    console.log('[후기도우미] 넣은 뒤 양식 개수', countForm());
+    snap('양식 넣은 뒤');
+    spyOn = false;
     if (countForm() !== 1 || !docText().includes(r.no)) throw new Error('양식이 제대로 들어가지 않았습니다 (개수 ' + countForm() + ')');
     report('유튜브 링크 넣는 중…');
     try { await addYoutube(r.youtube); }
@@ -387,7 +424,7 @@
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <select id="lp-sel" style="width:100%;margin:4px 0"></select>
-      <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">🔍 진단 복사</button>
+      <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
@@ -410,7 +447,7 @@
     getLatest();
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
     $('lp-diag').onclick = async () => {
-      const t = diagnose();
+      const t = diagnose() + '\n\n=== 로그 ===\n' + LOG.join('\n');
       try { await navigator.clipboard.writeText(t); msg('진단 내용을 복사했습니다. 대화창에 붙여넣어 보내 주세요'); }
       catch (e) { msg('복사 실패. 아래 내용을 직접 복사하세요'); prompt('진단 내용', t); }
     };
