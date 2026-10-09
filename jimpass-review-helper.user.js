@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.1
+// @version      0.3.2
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -261,7 +261,27 @@
         ed.dispatchEvent(new KeyboardEvent(type, { key: k, code, keyCode: kc, which: kc, bubbles: true, cancelable: true }));
       }
     };
+    // 이 에디터는 글이 보이는 칸이 아니라 숨은 입력칸으로 키를 받아 처리합니다. 키 신호를 직접 보내 봅니다.
+    const keyAt = (el, k, code, kc, mods = {}) => {
+      for (const type of ['keydown', 'keyup']) {
+        el.dispatchEvent(new KeyboardEvent(type, Object.assign({ key: k, code, keyCode: kc, which: kc, bubbles: true, cancelable: true, composed: true }, mods)));
+      }
+    };
+    const targets = () => [...new Set([ed, document.activeElement, ed.parentElement].filter(Boolean))];
     const methods = [
+      ['Ctrl+A 신호 후 지움 키 신호', () => {
+        ed.focus();
+        targets().forEach((t) => keyAt(t, 'a', 'KeyA', 65, { ctrlKey: true }));
+        targets().forEach((t) => keyAt(t, 'Backspace', 'Backspace', 8));
+      }],
+      ['지움 키 연타', async () => {
+        ed.focus();
+        const n = docText().replace(/\s+/g, '').length + 60;
+        for (let i = 0; i < n; i++) {
+          targets().forEach((t) => keyAt(t, 'Backspace', 'Backspace', 8));
+          if (i % 25 === 0) await sleep(5);
+        }
+      }],
       ['지우기 명령', () => { selAll(); document.execCommand('delete'); }],
       ['입력 신호(삭제)', () => {
         selAll();
@@ -282,7 +302,7 @@
     log.push('처음 ' + docText().replace(/\s+/g, '').length + '자');
     for (const [name, run] of methods) {
       if (bodyEmpty() || countForm() === 0 && docText().trim().length < 3) return name === methods[0][0] ? '이미 비어 있음' : '이미 비어 있음';
-      try { run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
+      try { await run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
       await sleep(500);
       const left = docText().replace(/\s+/g, '').length;
       console.log('[후기도우미] 지우기 시도', name, '남은 글자', left);
