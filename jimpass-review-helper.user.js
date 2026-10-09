@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.7
+// @version      0.2.8
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -218,35 +218,41 @@
     ].join('\n');
   }
 
+  // 본문 전체 글자 (에디터 칸이 여러 개로 나뉘어 있어도 전체를 봅니다)
+  const docText = () => {
+    const c = document.querySelector('.se-content') || document.querySelector('.se-viewer') || document.body;
+    return c.innerText || '';
+  };
+  const countForm = () => (docText().match(/카페 후기 양식/g) || []).length;
+
   async function fillJimCafe(r, report) {
     await fillTitle(r.title);
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
-    report('기존 양식 지우는 중…');
-    ed.focus();
-    document.execCommand('selectAll');
-    document.execCommand('delete');
-    await sleep(400);
-    if (/카페 후기 양식/.test(ed.innerText)) {
-      // 안 지워졌으면 지움 키를 직접 보냅니다
+    console.log('[후기도우미] 시작 전 양식 개수', countForm());
+
+    if (countForm() > 0) {
+      report('기존 양식 지우는 중…');
+      ed.focus();
       document.execCommand('selectAll');
-      for (const type of ['keydown', 'keyup']) {
-        ed.dispatchEvent(new KeyboardEvent(type, { key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8, bubbles: true }));
-      }
-      await sleep(400);
+      document.execCommand('delete');
+      await sleep(500);
     }
-    if (/카페 후기 양식/.test(ed.innerText)) throw new Error('기존 양식이 지워지지 않았습니다 (본문을 직접 비워 주세요)');
+    if (countForm() > 0) {
+      // 자동으로 안 지워지면 사용자가 한 번만 비웁니다. 비운 뒤 다시 누르면 그대로 이어집니다.
+      throw new Error('기존 양식이 안 지워집니다. 본문을 한 번 눌러 Ctrl+A 후 Delete 로 비우고 ▶ 채우기를 다시 누르세요');
+    }
     report('양식 새로 넣는 중…');
-    caretAtEnd(ed);
+    ed.focus();
     pasteText(ed, jimForm(r));
-    await sleep(600);
-    if (!/카페 후기 양식/.test(ed.innerText)) {
+    await sleep(700);
+    if (countForm() === 0) {
       document.execCommand('insertText', false, jimForm(r));
       await sleep(500);
     }
-    if (!/카페 후기 양식/.test(ed.innerText) || !ed.innerText.includes(r.no)) throw new Error('양식이 들어가지 않았습니다');
+    console.log('[후기도우미] 넣은 뒤 양식 개수', countForm());
+    if (countForm() !== 1 || !docText().includes(r.no)) throw new Error('양식이 제대로 들어가지 않았습니다 (개수 ' + countForm() + ')');
     report('유튜브 링크 넣는 중…');
-    caretAtEnd(ed);
     try { await addYoutube(r.youtube); }
     catch (e) { report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
   }
