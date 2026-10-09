@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.5.0
+// @version      0.5.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -563,6 +563,15 @@
   }
 
   /* ---------- 글 올린 뒤 주소 저장 (내 카페 글 보기 화면) ---------- */
+  function toast(t) {
+    try {
+      const d = document.createElement('div');
+      d.textContent = t;
+      d.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#03c75a;color:#fff;font:bold 15px sans-serif;padding:14px 18px;border-radius:8px;box-shadow:0 2px 8px #0005';
+      document.body.appendChild(d);
+      setTimeout(() => d.remove(), 6000);
+    } catch (e) {}
+  }
   function rememberCafeUrl() {
     const isView = /\/articles\/\d+/.test(location.pathname) && !/write/.test(location.pathname);
     if (location.href.includes('/cafes/' + MY_CAFE) && isView) {
@@ -574,11 +583,15 @@
         GM_setValue('lastCafeUrl', u[no]);
         markDone('my', no);
         GM_setValue('pending_my', '');
+        toast('후기 도우미: ' + no + ' 글 주소를 저장했습니다 (1번 완료)');
+      } else if (!window.__lpNoPend) {
+        window.__lpNoPend = true;
+        toast('후기 도우미: 이 글은 도우미로 채운 글이 아니라 저장하지 않았습니다');
       }
     }
     if (location.href.includes('/cafes/' + JIM_CAFE) && isView) {
       const no = GM_getValue('pending_jim', '');
-      if (no) { markDone('jim', no); GM_setValue('pending_jim', ''); }
+      if (no) { markDone('jim', no); GM_setValue('pending_jim', ''); toast('후기 도우미: ' + no + ' 카페 등록 완료로 기록했습니다'); }
     }
     if (location.hostname === 'www.jimpass.com' && /\/article\/(view|list)\//.test(location.pathname)) {
       const no = GM_getValue('pending_site', '');
