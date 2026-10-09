@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.5
+// @version      0.4.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -49,6 +49,69 @@
     new MutationObserver((m) => { mutCount += m.length; }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   } catch (e) {}
 
+
+  /* ---------- 기본 양식을 받는 통신 내용을 채워진 양식으로 바꿔치기 ---------- */
+  const FORM_URL = /\/editor\/menus\/\d+\/form|\/editor\/v2\/cafes\/\d+\/editor/;
+  function paraText(p) { return (p.nodes || []).map((n) => n.value || '').join(''); }
+  function setParaText(p, v) {
+    if (!p.nodes || !p.nodes.length) return false;
+    p.nodes[0].value = v;
+    for (let k = 1; k < p.nodes.length; k++) p.nodes[k].value = '';
+    return true;
+  }
+  function fillDoc(docStr, r) {
+    const doc = JSON.parse(docStr);
+    const shop = shopOf(r.title);
+    const want = [
+      ['① 신청서', r.no],
+      ['② 구매 사이트', shop],
+      ['(아래 후기를', r.body],
+    ];
+    let done = 0;
+    for (const comp of doc.components || []) {
+      if (comp['@ctype'] !== 'text' || !Array.isArray(comp.value)) continue;
+      const ps = comp.value;
+      for (let i = 0; i < ps.length; i++) {
+        const txt = paraText(ps[i]).trim();
+        for (const [prefix, val] of want) {
+          if (!txt.startsWith(prefix)) continue;
+          const nxt = ps[i + 1];
+          if (nxt && paraText(nxt).trim() === '') setParaText(nxt, val);   // 라벨 아래 빈 줄에 값을 넣음
+          else setParaText(ps[i], paraText(ps[i]) + ' ' + val);               // 빈 줄이 없으면 라벨 뒤에 붙임
+          done++;
+        }
+      }
+    }
+    return { json: JSON.stringify(doc), done };
+  }
+  function fillPlain(content, r) {
+    const shop = shopOf(r.title);
+    return content
+      .replace(/(① [^\n]*\n)\n/, (m, a) => a + r.no + '\n')
+      .replace(/(② [^\n]*\n)\n/, (m, a) => a + shop + '\n')
+      .replace(/(\(아래 후기를 작성해 주세요\)\n)\n/, (m, a) => a + r.body + '\n');
+  }
+  function transformForm(text) {
+    try {
+      if (!location.href.includes('/cafes/' + JIM_CAFE)) return text;
+      const r = cur();
+      if (!r) { log('양식 바꿔치기 건너뜀: 후기 목록 없음'); return text; }
+      const j = JSON.parse(text);
+      const f = j.result && (j.result.articleForm || j.result.form);
+      if (!f || !f.contentDocumentJson) return text;
+      const res = fillDoc(f.contentDocumentJson, r);
+      if (res.done < 3) { log('양식 바꿔치기 건너뜀: 자리를 3곳 못 찾음', res.done); return text; }
+      f.contentDocumentJson = res.json;
+      if (typeof f.content === 'string') f.content = fillPlain(f.content, r);
+      log('양식 바꿔치기 완료', r.no, '자리', res.done);
+      GM_setValue('lastApplied', r.no);
+      return JSON.stringify(j);
+    } catch (e) {
+      log('양식 바꿔치기 실패', e.message);
+      return text;
+    }
+  }
+
   /* ---------- 네트워크 기록: 기본 양식이 어디서 오는지 찾습니다 ---------- */
   const NET = [];
   function netNote(kind, url, status, text) {
@@ -78,6 +141,20 @@
     const oo = W.XMLHttpRequest.prototype.open;
     W.XMLHttpRequest.prototype.open = function (m, u) {
       this.__lpUrl = u;
+      if (FORM_URL.test(String(u))) {
+        const self = this;
+        let cache = null;
+        const rt = Object.getOwnPropertyDescriptor(W.XMLHttpRequest.prototype, 'responseText');
+        const rs = Object.getOwnPropertyDescriptor(W.XMLHttpRequest.prototype, 'response');
+        const get = () => {
+          if (cache === null) cache = transformForm(rt.get.call(self));
+          return cache;
+        };
+        try {
+          Object.defineProperty(this, 'responseText', { configurable: true, get });
+          Object.defineProperty(this, 'response', { configurable: true, get: () => (self.responseType === '' || self.responseType === 'text' ? get() : rs.get.call(self)) });
+        } catch (e) { log('응답 바꿔치기 설치 실패', e.message); }
+      }
       this.addEventListener('load', () => {
         let t = '';
         try { t = typeof this.responseText === 'string' ? this.responseText : ''; } catch (e) {}
@@ -136,6 +213,8 @@
       });
     });
   }
+
+  try { if (location.hostname === 'cafe.naver.com') fetchReviews().catch(() => {}); } catch (e) {}
 
   /* ---------- 글자 넣기 도구 ---------- */
   function setNative(el, value) {
@@ -383,6 +462,13 @@
   async function fillJimCafe(r, report) {
     log('채우기 시작(짐패스 카페)', r.no);
     await fillTitle(r.title);
+    if (GM_getValue('lastApplied', '') === r.no && docText().includes(r.no)) {
+      // 기본 양식이 이미 채워진 채로 열렸습니다. 유튜브만 넣으면 됩니다.
+      report('양식은 이미 채워져 있습니다. 유튜브 링크 넣는 중…');
+      try { await addYoutube(r.youtube); }
+      catch (e) { report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+      return;
+    }
     snap('제목 입력 뒤');
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
