@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.5.2
+// @version      0.5.3
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -12,6 +12,7 @@
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
+// @connect      raw.githubusercontent.com
 // @run-at       document-start
 // ==/UserScript==
 
@@ -224,25 +225,40 @@
 
   /* ---------- 깃허브에서 최신 후기 목록 받기 ---------- */
   const REVIEWS_API = 'https://api.github.com/repos/wg052026/tacbae-jimpass-supreme-autofill/contents/reviews.json?ref=main';
-  function fetchReviews() {
+  const REVIEWS_RAW = 'https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/reviews.json';
+  function getOnce(url, isApi) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
         method: 'GET',
-        url: REVIEWS_API + '&t=' + Date.now(),
-        headers: { Accept: 'application/vnd.github+json' },
+        url: url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(),
+        headers: isApi ? { Accept: 'application/vnd.github+json' } : {},
         onload: (res) => {
           try {
-            const j = JSON.parse(res.responseText);
-            const bin = atob(j.content.replace(/\n/g, ''));
-            const txt = new TextDecoder('utf-8').decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
-            const list = JSON.parse(txt);
-            GM_setValue('reviews', JSON.stringify(list));
-            resolve(list);
-          } catch (e) { reject(new Error('후기 목록을 읽지 못했습니다')); }
+            if (res.status !== 200) throw new Error('응답 ' + res.status + ' ' + String(res.responseText).slice(0, 80));
+            let txt = res.responseText;
+            if (isApi) {
+              const j = JSON.parse(txt);
+              const bin = atob(j.content.replace(/\n/g, ''));
+              txt = new TextDecoder('utf-8').decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+            }
+            resolve(JSON.parse(txt));
+          } catch (e) { reject(e); }
         },
-        onerror: () => reject(new Error('깃허브에 연결하지 못했습니다')),
+        onerror: () => reject(new Error('연결 실패')),
+        ontimeout: () => reject(new Error('시간 초과')),
       });
     });
+  }
+  async function fetchReviews() {
+    let list = null;
+    const errs = [];
+    for (const [url, api] of [[REVIEWS_API, true], [REVIEWS_RAW, false]]) {
+      try { list = await getOnce(url, api); log('후기 목록 받음', api ? 'API' : 'RAW', list.length); break; }
+      catch (e) { errs.push((api ? 'API ' : 'RAW ') + e.message); log('후기 목록 받기 실패', api ? 'API' : 'RAW', e.message); }
+    }
+    if (!list) throw new Error('후기 목록을 읽지 못했습니다 (' + errs.join(' / ') + ')');
+    GM_setValue('reviews', JSON.stringify(list));
+    return list;
   }
 
   try { if (location.hostname === 'cafe.naver.com') fetchReviews().catch(() => {}); } catch (e) {}
@@ -683,7 +699,7 @@
     }
     $('lp-fill').onclick = async () => {
       const r = cur();
-      if (!r) return msg('최신 후기 받아오기를 먼저 누르세요');
+      if (!r) return msg(loadAll().length ? '이 사이트에 올릴 후기가 더 없습니다 (모두 완료). 다시 올리려면 목록에서 줄을 체크하고 ✔ 완료/취소 단추를 누르세요' : '최신 후기 받아오기를 먼저 누르세요');
       try {
         msg('채우는 중…');
         if (m === 'mycafe') await fillMyCafe(r);
