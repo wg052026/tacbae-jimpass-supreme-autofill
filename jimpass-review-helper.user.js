@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.8
+// @version      0.2.9
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -225,22 +225,53 @@
   };
   const countForm = () => (docText().match(/카페 후기 양식/g) || []).length;
 
+  // 본문 비우기: 에디터가 받아 주는 방법이 나올 때까지 차례로 시도하고, 어떤 방법이 먹혔는지 알려 줍니다
+  const bodyEmpty = () => docText().replace(/\s+/g, '').length === 0;
+  async function clearBody() {
+    const ed = editorEl();
+    if (!ed) throw new Error('본문 칸을 못 찾았습니다');
+    const selAll = () => { ed.focus(); document.execCommand('selectAll'); };
+    const key = (k, code, kc) => {
+      for (const type of ['keydown', 'keyup']) {
+        ed.dispatchEvent(new KeyboardEvent(type, { key: k, code, keyCode: kc, which: kc, bubbles: true, cancelable: true }));
+      }
+    };
+    const methods = [
+      ['지우기 명령', () => { selAll(); document.execCommand('delete'); }],
+      ['입력 신호(삭제)', () => {
+        selAll();
+        ed.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true }));
+      }],
+      ['오려내기 신호', () => {
+        selAll();
+        const dt = new DataTransfer();
+        ed.dispatchEvent(new ClipboardEvent('cut', { clipboardData: dt, bubbles: true, cancelable: true }));
+      }],
+      ['지움 키', () => { selAll(); key('Backspace', 'Backspace', 8); }],
+      ['삭제 키', () => { selAll(); key('Delete', 'Delete', 46); }],
+      ['빈 글 덮어쓰기', () => { selAll(); pasteText(ed, ' '); }],
+    ];
+    for (const [name, run] of methods) {
+      if (bodyEmpty() || countForm() === 0 && docText().trim().length < 3) return name === methods[0][0] ? '이미 비어 있음' : '이미 비어 있음';
+      try { run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
+      await sleep(500);
+      const left = docText().replace(/\s+/g, '').length;
+      console.log('[후기도우미] 지우기 시도', name, '남은 글자', left);
+      if (left < 3) return name;
+    }
+    throw new Error('본문을 자동으로 못 지웠습니다. 본문을 눌러 Ctrl+A, Delete 로 직접 지워 주세요');
+  }
+
   async function fillJimCafe(r, report) {
     await fillTitle(r.title);
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
     console.log('[후기도우미] 시작 전 양식 개수', countForm());
 
-    if (countForm() > 0) {
+    if (!bodyEmpty()) {
       report('기존 양식 지우는 중…');
-      ed.focus();
-      document.execCommand('selectAll');
-      document.execCommand('delete');
-      await sleep(500);
-    }
-    if (countForm() > 0) {
-      // 자동으로 안 지워지면 사용자가 한 번만 비웁니다. 비운 뒤 다시 누르면 그대로 이어집니다.
-      throw new Error('기존 양식이 안 지워집니다. 본문을 한 번 눌러 Ctrl+A 후 Delete 로 비우고 ▶ 채우기를 다시 누르세요');
+      const how = await clearBody();
+      console.log('[후기도우미] 지운 방법', how);
     }
     report('양식 새로 넣는 중…');
     ed.focus();
@@ -296,6 +327,7 @@
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <select id="lp-sel" style="width:100%;margin:4px 0"></select>
+      <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
     document.body.appendChild(box);
@@ -316,6 +348,14 @@
     $('lp-get').onclick = getLatest;
     getLatest();
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
+    $('lp-clear').onclick = async () => {
+      try {
+        if (m === 'jimsite') { const ed = unsafeWindow.tinymce && unsafeWindow.tinymce.activeEditor; if (ed) ed.setContent(''); return msg('본문을 지웠습니다'); }
+        msg('지우는 중…');
+        const how = await clearBody();
+        msg('본문을 지웠습니다 (' + how + ')');
+      } catch (err) { msg('실패: ' + err.message); console.error('[후기도우미]', err); }
+    };
     $('lp-fill').onclick = async () => {
       const r = cur();
       if (!r) return msg('최신 후기 받아오기를 먼저 누르세요');
