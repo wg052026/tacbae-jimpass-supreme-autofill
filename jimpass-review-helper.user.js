@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.4.0
+// @version      0.4.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -96,6 +96,11 @@
       if (!location.href.includes('/cafes/' + JIM_CAFE)) return text;
       const r = cur();
       if (!r) { log('양식 바꿔치기 건너뜀: 후기 목록 없음'); return text; }
+      const mid = (location.href.match(/\/menus\/(\d+)/) || [])[1];
+      if ((mid === '25' && /일본/.test(r.title)) || (mid === '26' && /미국/.test(r.title))) {
+        log('양식 바꿔치기 건너뜀: 게시판 나라와 후기 나라가 다름', mid, r.title.slice(0, 20));
+        return text;
+      }
       const j = JSON.parse(text);
       const f = j.result && (j.result.articleForm || j.result.form);
       if (!f || !f.contentDocumentJson) return text;
