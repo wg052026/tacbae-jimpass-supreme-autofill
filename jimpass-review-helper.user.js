@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.4.2
+// @version      0.4.3
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -191,7 +191,19 @@
       }));
   }
   const loadAll = () => { try { return JSON.parse(GM_getValue('reviews', '[]')); } catch (e) { return []; } };
-  const cur = () => loadAll()[GM_getValue('idx', 0)];
+  const boardCountry = () => {
+    const m = (location.href.match(/\/cafes\/29931376\/menus\/(\d+)/) || [])[1];
+    return m === '25' ? '미국' : m === '26' ? '일본' : '';
+  };
+  const cur = () => {
+    const all = loadAll();
+    const sel = all[GM_getValue('idx', 0)];
+    const c = boardCountry();
+    if (!c || (sel && sel.title.includes(c))) return sel;
+    // 짐패스 카페 게시판 나라와 맞는 후기를 자동으로 고릅니다
+    const i = all.findIndex((r) => r.title.includes(c));
+    return i >= 0 ? all[i] : sel;
+  };
   const shopOf = (title) =>
     /슈프림/.test(title) ? '슈프림' : /캐피탈/.test(title) ? '캐피탈' : '';
 
