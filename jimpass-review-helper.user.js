@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.5
+// @version      0.2.6
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -73,15 +73,22 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  // 붙여넣기 신호만 보냅니다. 에디터가 받아 처리하면 끝, 안 받았을 때만 호출한 쪽에서 직접 넣습니다.
   function pasteText(el, text) {
-    // 커서가 이미 이 칸 안에 있으면 focus 를 다시 하지 않습니다 (커서가 맨 앞으로 튀는 것을 막음)
     const sel = getSelection();
     if (!(sel.rangeCount && el.contains(sel.anchorNode))) el.focus();
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
-    const ok = el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
-    // 붙여넣기가 받아들여지지 않았으면 직접 넣기
-    if (ok) document.execCommand('insertText', false, text);
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }
+  // 에디터가 자기 커서를 갱신하도록, 그 줄을 실제로 누른 것처럼 신호를 보냅니다.
+  function clickLike(el) {
+    const r = el.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, view: window, clientX: r.right - 2, clientY: r.top + r.height / 2 };
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      el.dispatchEvent(new MouseEvent(t, o));
+    }
+    document.dispatchEvent(new Event('selectionchange'));
   }
   function caretAtEnd(el) {
     const r = document.createRange();
@@ -129,18 +136,34 @@
 
   const editorText = () => (editorEl() ? editorEl().innerText : '');
 
-  // 한 칸 채우기: 해당 줄 끝에 커서를 두고 붙여 넣은 뒤, 정말 들어갔는지 확인
-  async function putAfter(prefix, text, label) {
+  // 한 칸 채우기: 해당 줄 끝에 커서를 두고 붙여 넣은 뒤, 정말 그 자리에 들어갔는지 확인
+  const flat = (t) => (t || '').replace(/\s+/g, ' ');
+  async function putAfter(prefix, text, label, nextMarker) {
     const p = paraStarting(prefix);
     if (!p) throw new Error(label + ' 칸을 못 찾았습니다 (양식이 바뀌었는지 확인)');
     const target = p.closest('[contenteditable="true"]') || editorEl();
+    const probe = flat(text).slice(0, 12);
+    if (flat(document.body.innerText).includes(probe) && label !== '② 구매처' && label !== '① 신청서 번호')
+      throw new Error(label + ': 이미 들어가 있습니다. 글쓰기 화면을 새로고침한 뒤 다시 누르세요');
+    caretAtEnd(p);
+    clickLike(p);
     caretAtEnd(p);
     pasteText(target, '\n' + text);
-    await sleep(400);
-    const probe = text.replace(/\s+/g, ' ').slice(0, 12);
-    const seen = (document.body.innerText || '').replace(/\s+/g, ' ');
-    console.log('[후기도우미]', label, '대상', target && target.className, '확인', seen.includes(probe));
-    if (!seen.includes(probe)) throw new Error(label + ' 내용이 들어가지 않았습니다');
+    await sleep(500);
+    let seen = flat(document.body.innerText);
+    if (!seen.includes(probe)) {          // 에디터가 신호를 안 받았으면 직접 넣기
+      document.execCommand('insertText', false, '\n' + text);
+      await sleep(400);
+      seen = flat(document.body.innerText);
+    }
+    const at = seen.indexOf(probe);
+    const mk = nextMarker ? seen.indexOf(nextMarker) : -1;
+    console.log('[후기도우미]', label, '위치', at, '다음칸', mk);
+    if (at < 0) throw new Error(label + ' 내용이 들어가지 않았습니다');
+    if (mk >= 0 && at > mk) {
+      document.execCommand('undo');
+      throw new Error(label + ' 내용이 엉뚱한 자리(맨 아래)로 들어가 되돌렸습니다');
+    }
   }
 
   // 유튜브 주소는 에디터의 「링크」 단추로 넣어야 미리보기 카드가 됩니다
@@ -171,11 +194,11 @@
     await fillTitle(r.title);
     // 아래쪽 칸부터 채워야 위치가 밀리지 않습니다
     report('④ 후기글 넣는 중…');
-    await putAfter('(아래 후기를', r.body, '④ 후기글');
+    await putAfter('(아래 후기를', r.body, '④ 후기글', '※ 배송 완료일');
     report('② 구매처 넣는 중…');
-    await putAfter('② 구매 사이트', shopOf(r.title), '② 구매처');
+    await putAfter('② 구매 사이트', shopOf(r.title), '② 구매처', '③ 구매 상품 사진');
     report('① 신청서 번호 넣는 중…');
-    await putAfter('① 신청서', r.no, '① 신청서 번호');
+    await putAfter('① 신청서', r.no, '① 신청서 번호', '② 구매 사이트');
     // ③ 사진은 마지막 안내줄 끝에 커서를 둡니다
     const p3 = paraStarting('- 동일한 제품');
     if (p3) caretAtEnd(p3);
