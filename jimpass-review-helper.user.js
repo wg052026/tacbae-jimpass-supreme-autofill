@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.5.4
+// @version      0.6.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
 // @match        https://cafe.naver.com/*
 // @match        https://www.jimpass.com/article/config/code/review/mode/write*
+// @match        https://www.jimpass.com/mypage/select/popup/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
@@ -566,16 +567,56 @@
 
   async function fillJimSite(r) {
     GM_setValue('pending_site', r.no);
-    const t = document.querySelector('input[type="text"][name*="title"], input[type="text"]');
+    // 관련 신청서 선택 창을 먼저 엽니다 (창 열기는 단추를 누른 직후에만 허용됩니다)
+    GM_setValue('wantCart', JSON.stringify({ no: r.no, at: Date.now() }));
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === '선택하기');
+    if (link) { link.click(); log('관련 신청서 선택 창 열기', r.no); }
+    else log('선택하기 단추를 못 찾음');
+    const t = document.querySelector('input[type="text"][name*="subject"], input[type="text"][name*="title"], input[type="text"]');
     if (!t) throw new Error('제목 칸을 못 찾았습니다');
     setNative(t, r.title);
     const url = urlOf(r.no);
-    const html =
-      (url ? `<p>카페 후기: <a href="${url}" target="_blank">${url}</a></p>` : '') +
-      `<p>${r.body}</p><p>${r.youtube}</p>`;
+    const html = (url ? `<p>카페 후기: <a href="${url}" target="_blank">${url}</a></p>` : '') + `<p>${r.body}</p>`;
     const ed = unsafeWindow.tinymce && unsafeWindow.tinymce.activeEditor;
     if (!ed) throw new Error('내용 칸(에디터)을 못 찾았습니다');
     ed.setContent(html);
+  }
+
+  /* ---------- 관련 신청서 선택 창: 신청서번호로 찾아 체크 ---------- */
+  function popupRoutine() {
+    const want = jget('wantCart', 'null');
+    if (!want || Date.now() - want.at > 120000) { log('신청서 창: 할 일 없음'); return; }
+    const no = want.no;
+    const run = () => {
+      const kw = document.querySelector('input[name=keyword]');
+      const sel = document.querySelector('select[name=search]');
+      if (!kw || !sel) return setTimeout(run, 500);
+      const rows = [...document.querySelectorAll('input[name=checkNo]')].map((r) => {
+        const hid = r.parentElement && r.parentElement.querySelector('input[type=hidden]') || r.closest('tr,li,div').querySelector('input[type=hidden]');
+        let j = {};
+        try { j = JSON.parse(decodeURIComponent(escape(atob(hid.value)))); } catch (e) {}
+        return { radio: r, cart: j.cart };
+      });
+      const hit = rows.find((x) => x.cart === no);
+      if (hit) {
+        hit.radio.click();
+        log('신청서 체크', no);
+        toast('후기 도우미: ' + no + ' 신청서를 체크했습니다');
+        GM_setValue('wantCart', 'null');
+        const ok = [...document.querySelectorAll('button,input[type=button],input[type=submit],a')].find((e) => /^(선택|선택완료|확인|적용)$/.test((e.innerText || e.value || '').trim()) && !e.classList.contains('event-click-view'));
+        log('확인 단추', ok ? ok.outerHTML.slice(0, 120) : '없음');
+        if (ok) setTimeout(() => ok.click(), 400);
+        return;
+      }
+      if (kw.value !== no) {
+        // 이 목록에 없으면 신청서번호로 검색
+        sel.value = 'cart';
+        kw.value = no;
+        log('신청서번호 검색', no);
+        (document.querySelector('form.form-search') || kw.form).submit();
+      } else { toast('후기 도우미: 신청서 ' + no + ' 를 찾지 못했습니다'); log('검색 결과에 없음', no); }
+    };
+    setTimeout(run, 800);
   }
 
   /* ---------- 글 올린 뒤 주소 저장 (내 카페 글 보기 화면) ---------- */
@@ -718,6 +759,7 @@
     };
   }
 
+  if (location.pathname.startsWith('/mypage/select/popup')) { document.addEventListener('DOMContentLoaded', popupRoutine); return; }
   rememberCafeUrl();
   // 화면이 나중에 바뀌는 사이트라 주기적으로 확인합니다
   setInterval(() => { rememberCafeUrl(); const m = mode(); if (m) panel(m); else { const p = document.getElementById('lp-panel'); if (p) p.remove(); } }, 1500);
