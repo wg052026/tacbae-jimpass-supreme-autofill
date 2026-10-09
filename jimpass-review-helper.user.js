@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.4
+// @version      0.3.5
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -56,6 +56,13 @@
     const hit = text && text.indexOf('카페 후기 양식') >= 0;
     const u = String(url).replace(/^https?:\/\/[^/]+/, '').slice(0, 140);
     if (!hit && /\.(js|css|png|jpg|gif|svg|woff2?)(\?|$)/.test(u)) return;
+    if (hit) {
+      const i = text.indexOf('신청서 번호');
+      NET.push('   [양식 앞부분] ' + JSON.stringify(text.slice(0, 300)));
+      NET.push('   [양식 둘레] ' + JSON.stringify(text.slice(Math.max(0, i - 250), i + 700)));
+      const j = text.indexOf('후기를 작성해');
+      NET.push('   [④ 둘레] ' + JSON.stringify(text.slice(Math.max(0, j - 200), j + 500)));
+    }
     NET.push('+' + String(Date.now() - t0).padStart(6, ' ') + 'ms ' + kind + ' ' + status + ' ' + u + (text ? ' 길이' + text.length : '') + (hit ? '  ★양식 글이 들어 있음★' : ''));
   }
   try {
