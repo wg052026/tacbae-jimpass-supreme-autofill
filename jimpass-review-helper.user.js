@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.9
+// @version      0.3.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -250,16 +250,22 @@
       ['지움 키', () => { selAll(); key('Backspace', 'Backspace', 8); }],
       ['삭제 키', () => { selAll(); key('Delete', 'Delete', 46); }],
       ['빈 글 덮어쓰기', () => { selAll(); pasteText(ed, ' '); }],
+      ['글자 덮어쓰기', () => { selAll(); document.execCommand('insertText', false, ' '); }],
+      ['틀 바꾸기', () => { selAll(); document.execCommand('insertHTML', false, '<p><br></p>'); }],
     ];
+    const log = [];
+    log.push('처음 ' + docText().replace(/\s+/g, '').length + '자');
     for (const [name, run] of methods) {
       if (bodyEmpty() || countForm() === 0 && docText().trim().length < 3) return name === methods[0][0] ? '이미 비어 있음' : '이미 비어 있음';
       try { run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
       await sleep(500);
       const left = docText().replace(/\s+/g, '').length;
       console.log('[후기도우미] 지우기 시도', name, '남은 글자', left);
+      log.push(name + ' ' + left);
       if (left < 3) return name;
     }
-    throw new Error('본문을 자동으로 못 지웠습니다. 본문을 눌러 Ctrl+A, Delete 로 직접 지워 주세요');
+    const rest = docText().replace(/\s+/g, ' ').trim().slice(0, 30);
+    throw new Error('본문을 자동으로 못 지웠습니다 [' + log.join(' / ') + '] 남은 글: "' + rest + '" 본문을 눌러 Ctrl+A, Delete 로 직접 지워 주세요');
   }
 
   async function fillJimCafe(r, report) {
