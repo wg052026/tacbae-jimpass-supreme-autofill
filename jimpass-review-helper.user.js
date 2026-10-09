@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.3
+// @version      0.3.4
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -12,7 +12,7 @@
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 (function () {
@@ -33,17 +33,53 @@
   }
   // 에디터가 어떤 신호를 받고 막는지 기록합니다
   let spyOn = false;
+  const spyCount = {};
   ['keydown', 'beforeinput', 'input', 'paste', 'cut', 'drop'].forEach((type) =>
     document.addEventListener(type, (ev) => {
       if (!spyOn) return;
+      const key = ev.type + ':' + (ev.key || ev.inputType || '');
+      spyCount[key] = (spyCount[key] || 0) + 1;
+      if (spyCount[key] > 3) return;
       const info = { type: ev.type, 진짜입력: ev.isTrusted, 대상: (ev.target && (ev.target.className || ev.target.tagName) || '').toString().slice(0, 30), key: ev.key, inputType: ev.inputType };
       setTimeout(() => log('신호', info, '막힘=' + ev.defaultPrevented), 0);
     }, true)
   );
   let mutCount = 0;
   try {
-    new MutationObserver((m) => { mutCount += m.length; }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    new MutationObserver((m) => { mutCount += m.length; }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   } catch (e) {}
+
+  /* ---------- 네트워크 기록: 기본 양식이 어디서 오는지 찾습니다 ---------- */
+  const NET = [];
+  function netNote(kind, url, status, text) {
+    if (NET.length > 300) return;
+    const hit = text && text.indexOf('카페 후기 양식') >= 0;
+    const u = String(url).replace(/^https?:\/\/[^/]+/, '').slice(0, 140);
+    if (!hit && /\.(js|css|png|jpg|gif|svg|woff2?)(\?|$)/.test(u)) return;
+    NET.push('+' + String(Date.now() - t0).padStart(6, ' ') + 'ms ' + kind + ' ' + status + ' ' + u + (text ? ' 길이' + text.length : '') + (hit ? '  ★양식 글이 들어 있음★' : ''));
+  }
+  try {
+    const W = unsafeWindow;
+    const of = W.fetch;
+    W.fetch = function (...a) {
+      const u = a[0] && a[0].url ? a[0].url : a[0];
+      return of.apply(this, a).then((res) => {
+        try { res.clone().text().then((t) => netNote('fetch', u, res.status, t)).catch(() => netNote('fetch', u, res.status, '')); } catch (e) {}
+        return res;
+      });
+    };
+    const oo = W.XMLHttpRequest.prototype.open;
+    W.XMLHttpRequest.prototype.open = function (m, u) {
+      this.__lpUrl = u;
+      this.addEventListener('load', () => {
+        let t = '';
+        try { t = typeof this.responseText === 'string' ? this.responseText : ''; } catch (e) {}
+        netNote('xhr', this.__lpUrl, this.status, t);
+      });
+      return oo.apply(this, arguments);
+    };
+  } catch (e) { LOG.push('네트워크 기록 설치 실패 ' + e.message); }
+
   const snap = (label) => {
     const c = document.querySelector('.se-content');
     const sel = getSelection();
@@ -302,14 +338,6 @@
         targets().forEach((t) => keyAt(t, 'a', 'KeyA', 65, { ctrlKey: true }));
         targets().forEach((t) => keyAt(t, 'Backspace', 'Backspace', 8));
       }],
-      ['지움 키 연타', async () => {
-        ed.focus();
-        const n = docText().replace(/\s+/g, '').length + 60;
-        for (let i = 0; i < n; i++) {
-          targets().forEach((t) => keyAt(t, 'Backspace', 'Backspace', 8));
-          if (i % 25 === 0) await sleep(5);
-        }
-      }],
       ['지우기 명령', () => { selAll(); document.execCommand('delete'); }],
       ['입력 신호(삭제)', () => {
         selAll();
@@ -416,7 +444,7 @@
   }
 
   function panel(m) {
-    if (document.getElementById('lp-panel')) return;
+    if (!document.body || document.getElementById('lp-panel')) return;
     const box = document.createElement('div');
     box.id = 'lp-panel';
     box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:280px;box-shadow:0 2px 8px #0003';
@@ -447,7 +475,7 @@
     getLatest();
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
     $('lp-diag').onclick = async () => {
-      const t = diagnose() + '\n\n=== 로그 ===\n' + LOG.join('\n');
+      const t = diagnose() + '\n\n=== 네트워크 ===\n' + NET.join('\n') + '\n\n=== 로그 ===\n' + LOG.join('\n');
       try { await navigator.clipboard.writeText(t); msg('진단 내용을 복사했습니다. 대화창에 붙여넣어 보내 주세요'); }
       catch (e) { msg('복사 실패. 아래 내용을 직접 복사하세요'); prompt('진단 내용', t); }
     };
