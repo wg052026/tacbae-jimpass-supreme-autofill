@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.4
+// @version      0.2.5
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -74,7 +74,9 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
   function pasteText(el, text) {
-    el.focus();
+    // 커서가 이미 이 칸 안에 있으면 focus 를 다시 하지 않습니다 (커서가 맨 앞으로 튀는 것을 막음)
+    const sel = getSelection();
+    if (!(sel.rangeCount && el.contains(sel.anchorNode))) el.focus();
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
     const ok = el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
@@ -131,11 +133,14 @@
   async function putAfter(prefix, text, label) {
     const p = paraStarting(prefix);
     if (!p) throw new Error(label + ' 칸을 못 찾았습니다 (양식이 바뀌었는지 확인)');
+    const target = p.closest('[contenteditable="true"]') || editorEl();
     caretAtEnd(p);
-    pasteText(editorEl(), '\n' + text);
+    pasteText(target, '\n' + text);
     await sleep(400);
     const probe = text.replace(/\s+/g, ' ').slice(0, 12);
-    if (!editorText().replace(/\s+/g, ' ').includes(probe)) throw new Error(label + ' 내용이 들어가지 않았습니다');
+    const seen = (document.body.innerText || '').replace(/\s+/g, ' ');
+    console.log('[후기도우미]', label, '대상', target && target.className, '확인', seen.includes(probe));
+    if (!seen.includes(probe)) throw new Error(label + ' 내용이 들어가지 않았습니다');
   }
 
   // 유튜브 주소는 에디터의 「링크」 단추로 넣어야 미리보기 카드가 됩니다
