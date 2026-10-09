@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.3.0
+// @version      0.3.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -225,6 +225,31 @@
   };
   const countForm = () => (docText().match(/카페 후기 양식/g) || []).length;
 
+
+  // 진단: 에디터 구조와 선택 상태를 모아 복사합니다 (붙여넣어 보내 주세요)
+  function diagnose() {
+    const out = [];
+    out.push('주소 ' + location.href.slice(0, 80) + ' / 최상단창 ' + (window === window.top));
+    const ces = [...document.querySelectorAll('[contenteditable]')];
+    out.push('편집칸 ' + ces.length + '개');
+    ces.slice(0, 8).forEach((e, i) =>
+      out.push(i + ') <' + e.tagName.toLowerCase() + ' class="' + String(e.className).slice(0, 60) + '" ce=' + e.getAttribute('contenteditable') + ' 글자=' + (e.innerText || '').replace(/\s+/g, '').length + ' 부모=' + (e.parentElement ? String(e.parentElement.className).slice(0, 40) : '') + '>'));
+    out.push('iframe ' + document.querySelectorAll('iframe').length + '개 / .se-content ' + document.querySelectorAll('.se-content').length + '개 / .se-component ' + document.querySelectorAll('.se-component').length + '개 / .se-text-paragraph ' + document.querySelectorAll('.se-text-paragraph').length + '개');
+    const ed = editorEl();
+    if (ed) {
+      ed.focus();
+      document.execCommand('selectAll');
+      const sel = getSelection();
+      out.push('전체선택 글자수 ' + sel.toString().replace(/\s+/g, '').length + ' / 시작노드 ' + (sel.anchorNode && (sel.anchorNode.className || sel.anchorNode.nodeName)) + ' / 끝노드 ' + (sel.focusNode && (sel.focusNode.className || sel.focusNode.nodeName)));
+      out.push('활성요소 ' + (document.activeElement && (document.activeElement.className || document.activeElement.tagName)));
+      document.addEventListener('beforeinput', function h(ev) { out.push('beforeinput ' + ev.inputType + ' 취소됨=' + ev.defaultPrevented); document.removeEventListener('beforeinput', h, true); }, true);
+      const before = (ed.innerText || '').length;
+      document.execCommand('delete');
+      out.push('지우기 명령 결과 ' + before + ' → ' + (ed.innerText || '').length);
+    }
+    return out.join('\n');
+  }
+
   // 본문 비우기: 에디터가 받아 주는 방법이 나올 때까지 차례로 시도하고, 어떤 방법이 먹혔는지 알려 줍니다
   const bodyEmpty = () => docText().replace(/\s+/g, '').length === 0;
   async function clearBody() {
@@ -276,8 +301,17 @@
 
     if (!bodyEmpty()) {
       report('기존 양식 지우는 중…');
-      const how = await clearBody();
-      console.log('[후기도우미] 지운 방법', how);
+      try {
+        const how = await clearBody();
+        console.log('[후기도우미] 지운 방법', how);
+      } catch (e) {
+        // 자동으로 안 지워지면 사용자가 Ctrl+A, Delete 로 비울 때까지 기다렸다가 그대로 이어갑니다
+        for (let i = 0; i < 120 && !bodyEmpty(); i++) {
+          report('본문을 눌러 Ctrl+A → Delete 로 비워 주세요. 비우면 자동으로 이어집니다 (' + (120 - i) + ')');
+          await sleep(500);
+        }
+        if (!bodyEmpty()) throw new Error('본문이 비워지지 않아 멈췄습니다');
+      }
     }
     report('양식 새로 넣는 중…');
     ed.focus();
@@ -333,6 +367,7 @@
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <select id="lp-sel" style="width:100%;margin:4px 0"></select>
+      <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">🔍 진단 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
@@ -354,6 +389,11 @@
     $('lp-get').onclick = getLatest;
     getLatest();
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
+    $('lp-diag').onclick = async () => {
+      const t = diagnose();
+      try { await navigator.clipboard.writeText(t); msg('진단 내용을 복사했습니다. 대화창에 붙여넣어 보내 주세요'); }
+      catch (e) { msg('복사 실패. 아래 내용을 직접 복사하세요'); prompt('진단 내용', t); }
+    };
     $('lp-clear').onclick = async () => {
       try {
         if (m === 'jimsite') { const ed = unsafeWindow.tinymce && unsafeWindow.tinymce.activeEditor; if (ed) ed.setContent(''); return msg('본문을 지웠습니다'); }
