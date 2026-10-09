@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.2
+// @version      0.2.3
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -125,27 +125,58 @@
     await fillTags(r.tags);
   }
 
-  async function fillJimCafe(r) {
+  const editorText = () => (editorEl() ? editorEl().innerText : '');
+
+  // 한 칸 채우기: 해당 줄 끝에 커서를 두고 붙여 넣은 뒤, 정말 들어갔는지 확인
+  async function putAfter(prefix, text, label) {
+    const p = paraStarting(prefix);
+    if (!p) throw new Error(label + ' 칸을 못 찾았습니다 (양식이 바뀌었는지 확인)');
+    caretAtEnd(p);
+    pasteText(editorEl(), '\n' + text);
+    await sleep(400);
+    const probe = text.replace(/\s+/g, ' ').slice(0, 12);
+    if (!editorText().replace(/\s+/g, ' ').includes(probe)) throw new Error(label + ' 내용이 들어가지 않았습니다');
+  }
+
+  // 유튜브 주소는 에디터의 「링크」 단추로 넣어야 미리보기 카드가 됩니다
+  async function addYoutube(url) {
+    const btn =
+      document.querySelector('button.se-oglink-toolbar-button') ||
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '링크');
+    if (!btn) throw new Error('링크 단추를 못 찾았습니다');
+    btn.click();
+    let input = null;
+    for (let i = 0; i < 20 && !input; i++) {
+      await sleep(250);
+      input = document.querySelector('.se-popup input[type="text"], .se-popup-oglink input, input[placeholder*="URL"], input[placeholder*="링크"]');
+    }
+    if (!input) throw new Error('링크 입력 칸이 열리지 않았습니다');
+    input.focus();
+    setNative(input, url);
+    await sleep(200);
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      input.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    }
+    await sleep(600);
+    const ok = [...document.querySelectorAll('.se-popup button, .se-popup-button')].find((b) => /확인|추가|등록/.test(b.textContent));
+    if (ok) ok.click();
+  }
+
+  async function fillJimCafe(r, report) {
     await fillTitle(r.title);
     // 아래쪽 칸부터 채워야 위치가 밀리지 않습니다
-    const p4 = paraStarting('(아래 후기를');
-    if (!p4) throw new Error('④ 칸을 못 찾았습니다 (양식이 바뀌었는지 확인)');
-    caretAtEnd(p4);
-    document.execCommand('insertParagraph');
-    pasteText(editorEl(), r.body + '\n' + r.youtube);
-    await sleep(300);
-
-    const p2 = paraStarting('② 구매 사이트');
-    if (p2) { caretAtEnd(p2); document.execCommand('insertParagraph'); pasteText(editorEl(), shopOf(r.title)); }
-    await sleep(200);
-    const p1 = paraStarting('① 신청서');
-    if (p1) { caretAtEnd(p1); document.execCommand('insertParagraph'); pasteText(editorEl(), r.no); }
-    await sleep(200);
-
+    report('④ 후기글 넣는 중…');
+    await putAfter('(아래 후기를', r.body, '④ 후기글');
+    report('② 구매처 넣는 중…');
+    await putAfter('② 구매 사이트', shopOf(r.title), '② 구매처');
+    report('① 신청서 번호 넣는 중…');
+    await putAfter('① 신청서', r.no, '① 신청서 번호');
     // ③ 사진은 마지막 안내줄 끝에 커서를 둡니다
     const p3 = paraStarting('- 동일한 제품');
     if (p3) caretAtEnd(p3);
-    await fillTags(r.tags);
+    report('유튜브 링크 넣는 중…');
+    try { await addYoutube(r.youtube); }
+    catch (e) { report('유튜브는 직접: 링크 단추로 ' + r.youtube + ' (' + e.message + ')'); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
   }
 
   async function fillJimSite(r) {
@@ -226,7 +257,7 @@
           const board = document.body.innerText;
           if ((/미국 후기/.test(board) && /일본/.test(r.title)) || (/일본 후기/.test(board) && /미국/.test(r.title)))
             return msg('게시판 나라와 후기 나라가 다릅니다');
-          await fillJimCafe(r);
+          await fillJimCafe(r, msg);
         }
         if (m === 'jimsite') await fillJimSite(r);
         msg('채움 완료. 사진을 끌어다 넣고, 등록은 직접 누르세요.');
