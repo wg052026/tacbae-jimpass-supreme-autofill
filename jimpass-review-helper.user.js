@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.5.1
+// @version      0.5.2
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -617,7 +617,7 @@
     box.innerHTML = `
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
-      <select id="lp-sel" style="width:100%;margin:4px 0"></select>
+      <input id="lp-sel" type="hidden"><div id="lp-list" style="max-height:200px;overflow:auto;border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-done" style="width:100%;margin:2px 0">✔ 이 후기 완료/취소 표시</button>
@@ -629,12 +629,22 @@
 
     const refresh = () => {
       const all = loadAll();
-      $('lp-sel').innerHTML = all.map((r, i) => `<option value="${i}">${r.no} ${r.title.slice(-24)}</option>`).join('');
-      $('lp-sel').value = GM_getValue('idx', 0);
       const dn = doneList(siteKey());
-      $('lp-sel').innerHTML = all.map((r, i) => `<option value="${i}">${dn.includes(r.no) ? '✔ ' : ''}${r.no} ${r.title.slice(-24)}</option>`).join('');
       const c0 = cur();
-      $('lp-sel').value = c0 ? all.indexOf(c0) : GM_getValue('idx', 0);
+      let pick = c0 ? all.indexOf(c0) : +GM_getValue('idx', 0);
+      if ($('lp-sel').dataset.user === '1') pick = +$('lp-sel').value;
+      $('lp-sel').value = pick;
+      const c = boardCountry();
+      $('lp-list').innerHTML = all.map((r, i) => {
+        const d = dn.includes(r.no);
+        const country = r.title.includes('일본') ? '일본' : r.title.includes('미국') ? '미국' : '';
+        const off = (c && country && c !== country) || (siteKey() === 'site' && !doneList('my').includes(r.no));
+        return `<label style="display:block;padding:4px 6px;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
+          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
+      }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
+      $('lp-list').querySelectorAll('input[name=lp-pick]').forEach((el) => {
+        el.onchange = () => { $('lp-sel').value = el.value; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +el.value); };
+      });
       $('lp-st').textContent = all.length ? '이 사이트 ' + all.filter((r) => dn.includes(r.no)).length + '/' + all.length + ' 완료' : '(받아오기를 누르세요)';
     };
     refresh();
@@ -644,7 +654,6 @@
     };
     $('lp-get').onclick = getLatest;
     getLatest();
-    $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
     $('lp-done').onclick = () => {
       const all = loadAll();
       const r = all[$('lp-sel').value];
