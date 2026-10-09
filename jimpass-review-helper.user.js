@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.3
+// @version      0.2.4
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -213,13 +213,12 @@
     if (document.getElementById('lp-panel')) return;
     const box = document.createElement('div');
     box.id = 'lp-panel';
-    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:260px;box-shadow:0 2px 8px #0003';
+    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:280px;box-shadow:0 2px 8px #0003';
     box.innerHTML = `
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
-      <button id="lp-get" style="width:100%">최신 후기 받아오기</button>
-      <input id="lp-txt" type="file" accept=".txt" title="txt 직접 고르기(예비)"><br>
+      <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <select id="lp-sel" style="width:100%;margin:4px 0"></select>
-      <button id="lp-fill" style="width:100%;margin:2px 0">제목·본문·태그 채우기</button>
+      <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
     document.body.appendChild(box);
     const $ = (id) => box.querySelector('#' + id);
@@ -229,7 +228,7 @@
       const all = loadAll();
       $('lp-sel').innerHTML = all.map((r, i) => `<option value="${i}">${r.no} ${r.title.slice(-24)}</option>`).join('');
       $('lp-sel').value = GM_getValue('idx', 0);
-      $('lp-st').textContent = all.length ? all.length + '건' : '(txt 를 고르세요)';
+      $('lp-st').textContent = all.length ? all.length + '건' : '(받아오기를 누르세요)';
     };
     refresh();
     const getLatest = async () => {
@@ -238,18 +237,10 @@
     };
     $('lp-get').onclick = getLatest;
     getLatest();
-    $('lp-txt').onchange = async (e) => {
-      const f = e.target.files[0];
-      if (!f) return;
-      const list = parseReviews(await f.text());
-      GM_setValue('reviews', JSON.stringify(list));
-      GM_setValue('idx', 0);
-      refresh();
-    };
     $('lp-sel').onchange = (e) => GM_setValue('idx', +e.target.value);
     $('lp-fill').onclick = async () => {
       const r = cur();
-      if (!r) return msg('후기 txt 를 먼저 고르세요');
+      if (!r) return msg('최신 후기 받아오기를 먼저 누르세요');
       try {
         msg('채우는 중…');
         if (m === 'mycafe') await fillMyCafe(r);
