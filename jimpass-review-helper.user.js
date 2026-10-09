@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.0
+// @version      0.2.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -114,7 +114,43 @@
     }
   }
 
-  /* ---------- 사진: 끌어다 놓기 시도 ---------- */
+
+  /* ---------- 사진: 에디터의 파일 선택창 대신 고른 사진을 바로 넣기 ---------- */
+  // 에디터가 숨은 파일 칸을 눌러 선택창을 띄우려 할 때, 미리 고른 사진을 대신 넣어 줍니다.
+  (function injectPicHook() {
+    const sc = document.createElement('script');
+    sc.textContent = `(${function () {
+      if (window.__lpHook) return;
+      window.__lpHook = true;
+      const orig = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function () {
+        if (this.type === 'file' && window.__lpFiles && window.__lpFiles.length) {
+          const dt = new DataTransfer();
+          window.__lpFiles.forEach((f) => dt.items.add(f));
+          window.__lpFiles = null;
+          this.files = dt.files;
+          this.dispatchEvent(new Event('input', { bubbles: true }));
+          this.dispatchEvent(new Event('change', { bubbles: true }));
+          return;
+        }
+        return orig.apply(this, arguments);
+      };
+    }})();`;
+    (document.head || document.documentElement).appendChild(sc);
+    sc.remove();
+  })();
+
+  function putPhotos(files) {
+    const list = [...files].sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+    unsafeWindow.__lpFiles = list;
+    const btn =
+      document.querySelector('button.se-image-toolbar-button') ||
+      [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '사진');
+    if (!btn) throw new Error('에디터의 사진 단추를 못 찾았습니다');
+    btn.click();
+  }
+
+  /* ---------- 사진: 끌어다 놓기 시도(예비) ---------- */
   function dropFiles(files) {
     const ed = editorEl();
     if (!ed) throw new Error('본문 칸을 못 찾았습니다');
@@ -249,7 +285,7 @@
     };
     const pic = box.querySelector('#lp-pic');
     if (pic) pic.onchange = (e) => {
-      try { dropFiles(e.target.files); msg('사진을 끌어놓기로 넣어 봤습니다. 안 들어갔으면 에디터의 사진 단추를 쓰세요.'); }
+      try { putPhotos(e.target.files); msg('사진을 넣었습니다. 장수를 확인하세요.'); }
       catch (err) { msg('실패: ' + err.message); }
     };
   }
