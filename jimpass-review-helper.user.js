@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.5.3
+// @version      0.5.4
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -655,13 +655,13 @@
         const d = dn.includes(r.no);
         const country = r.title.includes('일본') ? '일본' : r.title.includes('미국') ? '미국' : '';
         const off = (c && country && c !== country) || (siteKey() === 'site' && !doneList('my').includes(r.no));
-        return `<label style="display:block;padding:4px 6px;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
-          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
+        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:block;padding:4px 6px;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
+          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
       }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
       $('lp-list').querySelectorAll('input[name=lp-pick]').forEach((el) => {
         el.onchange = () => { $('lp-sel').value = el.value; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +el.value); };
       });
-      $('lp-st').textContent = all.length ? '이 사이트 ' + all.filter((r) => dn.includes(r.no)).length + '/' + all.length + ' 완료' : '(받아오기를 누르세요)';
+      $('lp-st').textContent = all.length ? '글주소 ' + all.filter((r) => urlOf(r.no)).length + '/' + all.length + ' · 이 사이트 ' + all.filter((r) => dn.includes(r.no)).length + '/' + all.length + ' 완료' : '(받아오기를 누르세요)';
     };
     refresh();
     const getLatest = async () => {
