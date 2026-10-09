@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.2.6
+// @version      0.2.7
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -190,21 +190,65 @@
     if (ok) ok.click();
   }
 
+  // 기존 양식을 지우고, 값이 채워진 양식 전체를 새로 넣습니다
+  function jimForm(r) {
+    return [
+      '★ ★ ★ 카페 후기 양식 ★ ★ ★',
+      '',
+      '① 신청서 번호 (지오패스의 경우 주문번호를 작성) :',
+      r.no,
+      '',
+      '② 구매 사이트(사이트명 or URL주소) :',
+      shopOf(r.title),
+      '',
+      '③ 구매 상품 사진 ( ★ 총 5장 업로드 ★ )',
+      '- 배송된 박스사진 1장 + 물품사진 4장 이상 또는 구매 물품 사진만 5장 이상',
+      '- 포장지나 뽁뽁이 제거한 제품이 보이는 사진이어야합니다',
+      '- 동일한 제품 촬영 컷은 해당 되지 않습니다.',
+      '',
+      '',
+      '',
+      '④ 후기글 (200자 이상 작성) :',
+      r.body,
+      '',
+      '',
+      '※ 배송 완료일을 꼭 체크하시고 후기글 작성해주세요. (배송 완료일로부터 한달이내 작성)',
+      '      ex) 배송 완료일이 1월 1일일 경우 2월 1일 작성건은 해당되지 않음.',
+      '※ 등록하신 후기는 짐패스 홈페이지에 노출 될 수 있으니 이 점 참고 부탁드립니다.',
+    ].join('\n');
+  }
+
   async function fillJimCafe(r, report) {
     await fillTitle(r.title);
-    // 아래쪽 칸부터 채워야 위치가 밀리지 않습니다
-    report('④ 후기글 넣는 중…');
-    await putAfter('(아래 후기를', r.body, '④ 후기글', '※ 배송 완료일');
-    report('② 구매처 넣는 중…');
-    await putAfter('② 구매 사이트', shopOf(r.title), '② 구매처', '③ 구매 상품 사진');
-    report('① 신청서 번호 넣는 중…');
-    await putAfter('① 신청서', r.no, '① 신청서 번호', '② 구매 사이트');
-    // ③ 사진은 마지막 안내줄 끝에 커서를 둡니다
-    const p3 = paraStarting('- 동일한 제품');
-    if (p3) caretAtEnd(p3);
+    const ed = editorEl();
+    if (!ed) throw new Error('본문 칸을 못 찾았습니다');
+    report('기존 양식 지우는 중…');
+    ed.focus();
+    document.execCommand('selectAll');
+    document.execCommand('delete');
+    await sleep(400);
+    if (/카페 후기 양식/.test(ed.innerText)) {
+      // 안 지워졌으면 지움 키를 직접 보냅니다
+      document.execCommand('selectAll');
+      for (const type of ['keydown', 'keyup']) {
+        ed.dispatchEvent(new KeyboardEvent(type, { key: 'Backspace', code: 'Backspace', keyCode: 8, which: 8, bubbles: true }));
+      }
+      await sleep(400);
+    }
+    if (/카페 후기 양식/.test(ed.innerText)) throw new Error('기존 양식이 지워지지 않았습니다 (본문을 직접 비워 주세요)');
+    report('양식 새로 넣는 중…');
+    caretAtEnd(ed);
+    pasteText(ed, jimForm(r));
+    await sleep(600);
+    if (!/카페 후기 양식/.test(ed.innerText)) {
+      document.execCommand('insertText', false, jimForm(r));
+      await sleep(500);
+    }
+    if (!/카페 후기 양식/.test(ed.innerText) || !ed.innerText.includes(r.no)) throw new Error('양식이 들어가지 않았습니다');
     report('유튜브 링크 넣는 중…');
+    caretAtEnd(ed);
     try { await addYoutube(r.youtube); }
-    catch (e) { report('유튜브는 직접: 링크 단추로 ' + r.youtube + ' (' + e.message + ')'); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+    catch (e) { report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
   }
 
   async function fillJimSite(r) {
