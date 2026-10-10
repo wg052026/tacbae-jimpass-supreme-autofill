@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.7.1
+// @version      0.8.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -605,7 +605,9 @@
     const html = (url ? `<p>카페 후기: <a href="${url}" target="_blank">${url}</a></p>` : '') + `<p>${r.body}</p>`;
     const ed = unsafeWindow.tinymce && unsafeWindow.tinymce.activeEditor;
     if (!ed) throw new Error('내용 칸(에디터)을 못 찾았습니다');
-    ed.setContent(html);
+    let keep = '';
+    try { keep = [...ed.getBody().querySelectorAll('img')].map((im) => '<p>' + im.outerHTML + '</p>').join(''); } catch (e) {}
+    ed.setContent(html + keep);
   }
 
   /* ---------- 관련 신청서 선택 창: 신청서번호로 찾아 체크 ---------- */
@@ -696,7 +698,7 @@
     if (!document.body || document.getElementById('lp-panel')) return;
     const box = document.createElement('div');
     box.id = 'lp-panel';
-    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:300px;max-height:calc(100vh - 24px);overflow:auto;box-shadow:0 2px 8px #0003';
+    box.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:300px;max-height:calc(100vh - 24px);overflow:auto;box-shadow:0 2px 8px #0003';
     box.innerHTML = `
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-upd" style="display:none;width:100%;margin-bottom:4px;padding:6px;font-size:13px;font-weight:bold;color:#fff;background:#f57c00;border:0;border-radius:4px;cursor:pointer">새 판 있음 — 눌러서 업데이트</button>
@@ -708,8 +710,28 @@
       <button id="lp-fill" style="width:100%;margin:6px 0 2px;padding:14px 0;font-size:17px;font-weight:bold;color:#fff;background:#03c75a;border:0;border-radius:6px;cursor:pointer">▶ 채우기</button>
       <div id="lp-msg" style="margin-top:4px;color:#c00"></div>`;
     document.body.appendChild(box);
+    // 0.8.0 : 머리 줄을 끌어 옮기고, 「접기」로 작게 만들 수 있습니다 (위치·접힘은 기억)
+    try {
+      const head = box.firstElementChild;
+      head.style.cssText += ';cursor:move';
+      const fold = document.createElement('button');
+      fold.id = 'lp-fold'; fold.textContent = '접기'; fold.style.cssText = 'float:right;font-size:11px;padding:1px 6px;cursor:pointer';
+      box.insertBefore(fold, box.firstChild);
+      const kids = () => [...box.children].filter((e) => e !== fold && e !== head && e.id !== 'lp-st' && e.id !== 'lp-upd');
+      const applyFold = (f) => { const u = box.querySelector('#lp-upd'); if (u) u.style.display = (!f && u.dataset.show === '1') ? 'block' : 'none'; kids().forEach((e) => { e.style.display = f ? 'none' : ''; }); fold.textContent = f ? '펴기' : '접기'; box.style.width = f ? '150px' : '300px'; };
+      let folded = !!GM_getValue('lpFold', false);
+      fold.onclick = (ev) => { ev.stopPropagation(); folded = !folded; GM_setValue('lpFold', folded); applyFold(folded); };
+      const pos = JSON.parse(GM_getValue('lpPos', 'null') || 'null');
+      if (pos) { box.style.left = Math.max(0, Math.min(pos.x, innerWidth - 60)) + 'px'; box.style.top = Math.max(0, Math.min(pos.y, innerHeight - 40)) + 'px'; box.style.bottom = 'auto'; }
+      let drag = null;
+      head.addEventListener('mousedown', (ev) => { const r = box.getBoundingClientRect(); drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top }; ev.preventDefault(); });
+      document.addEventListener('mousemove', (ev) => { if (!drag) return; box.style.left = (ev.clientX - drag.dx) + 'px'; box.style.top = (ev.clientY - drag.dy) + 'px'; box.style.bottom = 'auto'; });
+      document.addEventListener('mouseup', () => { if (!drag) return; drag = null; const r = box.getBoundingClientRect(); GM_setValue('lpPos', JSON.stringify({ x: r.left, y: r.top })); });
+      box._applyFold = () => applyFold(folded);
+    } catch (e) { log('패널 끌기 장치 실패', e.message); }
     const $ = (id) => box.querySelector('#' + id);
     const msg = (s) => ($('lp-msg').textContent = s);
+    if (box._applyFold) box._applyFold();
 
     const refresh = () => {
       const all = loadAll();
@@ -740,7 +762,7 @@
     checkNewVersion().then((latest) => {
       if (!latest) return;
       const b = $('lp-upd');
-      b.style.display = 'block';
+      b.style.display = box.querySelector('#lp-fold') && box.querySelector('#lp-fold').textContent === '펴기' ? 'none' : 'block'; b.dataset.show = '1';
       b.textContent = '새 판 ' + latest + ' 있음 — 눌러서 업데이트';
       b.onclick = () => { try { GM_openInTab(SCRIPT_RAW, { active: true }); } catch (e) { window.open(SCRIPT_RAW, '_blank'); } };
     });
@@ -794,6 +816,27 @@
   }
 
   if (location.pathname.startsWith('/mypage/select/popup')) { document.addEventListener('DOMContentLoaded', popupRoutine); return; }
+
+  /* ---------- 0.8.0 : 짐패스 사이트 사진 「본문삽입」 단추가 생기면 전부 자동으로 누릅니다 ---------- */
+  function autoInsertPhotos() {
+    if (location.hostname !== 'www.jimpass.com' || !location.pathname.includes('/article/')) return;
+    if (autoInsertPhotos.busy) return;
+    const btns = [...document.querySelectorAll('.files .file-unit.file-button button.event-fileupload-add-content')]
+      .filter((b) => !b.dataset.lpDone && !b.disabled && b.offsetParent !== null);
+    if (!btns.length) return;
+    autoInsertPhotos.busy = true;
+    (async () => {
+      try {
+        for (const b of btns) {
+          b.dataset.lpDone = '1';
+          const name = (b.closest('.file-wrap') && b.closest('.file-wrap').querySelector('.file-name') || {}).textContent || '';
+          try { b.click(); log('본문삽입 자동 누름', name.trim()); } catch (e) { log('본문삽입 누르기 실패', name, e.message); }
+          await sleep(700);
+        }
+      } finally { autoInsertPhotos.busy = false; }
+    })();
+  }
+  setInterval(autoInsertPhotos, 1000);
   rememberCafeUrl();
   // 화면이 나중에 바뀌는 사이트라 주기적으로 확인합니다
   setInterval(() => { rememberCafeUrl(); const m = mode(); if (m) panel(m); else { const p = document.getElementById('lp-panel'); if (p) p.remove(); } }, 1500);
