@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.0
+// @version      0.9.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
 // @match        https://cafe.naver.com/*
 // @match        https://www.jimpass.com/article/config/code/review/mode/write*
 // @match        https://www.jimpass.com/mypage/select/popup/*
+// @match        https://www.jimpass.com/article/view/code/review/*
+// @match        https://www.jimpass.com/article/list/code/review/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
@@ -735,7 +737,7 @@
 
   /* ---------- 화면 패널 ---------- */
   function mode() {
-    if (location.hostname === 'www.jimpass.com') return 'jimsite';
+    if (location.hostname === 'www.jimpass.com') return /\/mode\/write/.test(location.pathname) ? 'jimsite' : '';
     // 카페 글쓰기 화면: 제목 칸이 있으면 글쓰기 화면으로 봅니다 (주소 모양이 달라도 됨)
     const hasTitle = document.querySelector('textarea[placeholder*="제목"], input[placeholder*="제목"]');
     if (!hasTitle) return '';
