@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.6.0
+// @version      0.7.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -12,6 +12,7 @@
 // @grant        GM_setValue
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
+// @grant        GM_openInTab
 // @connect      api.github.com
 // @connect      raw.githubusercontent.com
 // @run-at       document-start
@@ -223,6 +224,31 @@
   const shopOf = (title) =>
     /슈프림/.test(title) ? '슈프림' : /캐피탈/.test(title) ? '캐피탈' : '';
 
+
+  /* ---------- 새 판 확인 (0.7.0) : 패널을 열 때 깃허브의 최신 판 번호를 봅니다 ---------- */
+  const SCRIPT_RAW = 'https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js';
+  function verNum(v) { return String(v || '0').split('.').map((x) => parseInt(x, 10) || 0); }
+  function verNewer(a, b) { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; }
+  function checkNewVersion() {
+    return new Promise((resolve) => {
+      let mine = '0';
+      try { mine = GM_info.script.version; } catch (e) {}
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: SCRIPT_RAW + '?t=' + Date.now(),
+        onload: (res) => {
+          try {
+            const m = /@version\s+([0-9.]+)/.exec(String(res.responseText).slice(0, 2000));
+            const latest = m ? m[1] : '';
+            log('판 확인', '내 판', mine, '최신', latest);
+            resolve(latest && verNewer(latest, mine) ? latest : '');
+          } catch (e) { log('판 확인 실패', e.message); resolve(''); }
+        },
+        onerror: () => { log('판 확인 연결 실패'); resolve(''); },
+        ontimeout: () => resolve(''),
+      });
+    });
+  }
 
   /* ---------- 깃허브에서 최신 후기 목록 받기 ---------- */
   const REVIEWS_API = 'https://api.github.com/repos/wg052026/tacbae-jimpass-supreme-autofill/contents/reviews.json?ref=main';
@@ -673,6 +699,7 @@
     box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:280px;box-shadow:0 2px 8px #0003';
     box.innerHTML = `
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
+      <button id="lp-upd" style="display:none;width:100%;margin-bottom:4px;padding:6px;font-size:13px;font-weight:bold;color:#fff;background:#f57c00;border:0;border-radius:4px;cursor:pointer">새 판 있음 — 눌러서 업데이트</button>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <input id="lp-sel" type="hidden"><div id="lp-list" style="max-height:200px;overflow:auto;border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
@@ -710,6 +737,13 @@
       catch (err) { msg('실패: ' + err.message); }
     };
     $('lp-get').onclick = getLatest;
+    checkNewVersion().then((latest) => {
+      if (!latest) return;
+      const b = $('lp-upd');
+      b.style.display = 'block';
+      b.textContent = '새 판 ' + latest + ' 있음 — 눌러서 업데이트';
+      b.onclick = () => { try { GM_openInTab(SCRIPT_RAW, { active: true }); } catch (e) { window.open(SCRIPT_RAW, '_blank'); } };
+    });
     getLatest();
     $('lp-done').onclick = () => {
       const all = loadAll();
