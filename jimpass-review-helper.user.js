@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.8.0
+// @version      0.9.0
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -203,10 +203,59 @@
     location.hostname === 'www.jimpass.com' ? 'site' : location.href.includes('/cafes/' + JIM_CAFE) ? 'jim' : 'my';
   const jget = (k, d) => { try { return JSON.parse(GM_getValue(k, d)); } catch (e) { return JSON.parse(d); } };
   const doneList = (key) => jget('done_' + key, '[]');
+  /* ---------- 0.9.0 : 등록 기록(완료 표시·글 주소)을 깃허브 done.json 으로 올립니다 ---------- */
+  const DONE_API = 'https://api.github.com/repos/wg052026/tacbae-jimpass-supreme-autofill/contents/done.json';
+  const b64enc = (str) => btoa(unescape(encodeURIComponent(str)));
+  const b64dec = (b) => decodeURIComponent(escape(atob(String(b).replace(/\n/g, ''))));
+  function ghReq(method, url, token, body) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method, url: url + (method === 'GET' ? (url.includes('?') ? '&' : '?') + 't=' + Date.now() : ''),
+        headers: Object.assign({ Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token }, body ? { 'Content-Type': 'application/json' } : {}),
+        data: body ? JSON.stringify(body) : undefined,
+        onload: (res) => resolve(res), onerror: () => reject(new Error('연결 실패')), ontimeout: () => reject(new Error('시간 초과')),
+      });
+    });
+  }
+  let pushTimer = null;
+  function pushDone() {
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(doPushDone, 2000);
+  }
+  async function doPushDone() {
+    const token = GM_getValue('gh_token', '');
+    if (!token) { log('기록 올리기 건너뜀: 토큰 없음'); GM_setValue('pushStatus', '토큰 없음 — 패널의 「🔑 토큰 넣기」를 누르세요'); return; }
+    try {
+      const get = await ghReq('GET', DONE_API, token);
+      let sha, remote = { my: [], jim: [], site: [], urls: {} };
+      if (get.status === 200) { const j = JSON.parse(get.responseText); sha = j.sha; try { remote = Object.assign(remote, JSON.parse(b64dec(j.content))); } catch (e) {} }
+      else if (get.status !== 404) throw new Error('읽기 응답 ' + get.status + ' ' + String(get.responseText).slice(0, 80));
+      const uni = (a, b) => [...new Set([...(a || []), ...(b || [])])];
+      const out = {
+        갱신: new Date().toISOString(),
+        my: uni(remote.my, doneList('my')), jim: uni(remote.jim, doneList('jim')), site: uni(remote.site, doneList('site')),
+        urls: Object.assign({}, remote.urls || {}, jget('urls', '{}')),
+      };
+      // 사장님이 「완료 취소」한 것은 이쪽 기록을 따릅니다
+      const cancelled = jget('cancelled', '{}');
+      for (const k of ['my', 'jim', 'site']) out[k] = out[k].filter((n) => !((cancelled[k] || []).includes(n)));
+      const put = await ghReq('PUT', DONE_API, token, { message: '후기 도우미 등록 기록', content: b64enc(JSON.stringify(out, null, 1) + '\n'), sha, branch: 'main' });
+      if (put.status !== 200 && put.status !== 201) throw new Error('쓰기 응답 ' + put.status + ' ' + String(put.responseText).slice(0, 100));
+      GM_setValue('cancelled', '{}');
+      const hm = new Date().toTimeString().slice(0, 8);
+      GM_setValue('pushStatus', '기록 올림 ' + hm);
+      log('기록 올림', out.my.length, out.jim.length, out.site.length);
+    } catch (e) {
+      GM_setValue('pushStatus', '기록 올리기 실패: ' + e.message);
+      log('기록 올리기 실패', e.message);
+      try { toast('후기 도우미: 기록을 깃허브에 못 올렸습니다 (' + e.message + ')'); } catch (x) {}
+    }
+  }
   const markDone = (key, no) => {
     const d = doneList(key);
     if (!d.includes(no)) { d.push(no); GM_setValue('done_' + key, JSON.stringify(d)); }
     log('완료 기록', key, no);
+    pushDone();
   };
   const urlOf = (no) => jget('urls', '{}')[no] || '';
   // 이 사이트에서 아직 안 올린 후기를 고릅니다 (고른 후기가 맞으면 그것, 아니면 첫 번째)
@@ -704,6 +753,8 @@
       <button id="lp-upd" style="display:none;width:100%;margin-bottom:4px;padding:6px;font-size:13px;font-weight:bold;color:#fff;background:#f57c00;border:0;border-radius:4px;cursor:pointer">새 판 있음 — 눌러서 업데이트</button>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <input id="lp-sel" type="hidden"><div id="lp-list" style="border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
+      <button id="lp-tok" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">🔑 깃허브 토큰 넣기 (등록 기록 올리기)</button>
+      <div id="lp-push" style="font-size:11px;color:#666;margin-top:2px"></div>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-done" style="width:100%;margin:2px 0">✔ 이 후기 완료/취소 표시</button>
@@ -759,6 +810,14 @@
       catch (err) { msg('실패: ' + err.message); }
     };
     $('lp-get').onclick = getLatest;
+    const showPush = () => { const t = GM_getValue('gh_token', ''); $('lp-push').textContent = t ? (GM_getValue('pushStatus', '') || '토큰 저장됨 · 아직 올린 기록 없음') : '토큰 없음 — 등록 기록이 깃허브에 안 올라갑니다'; $('lp-tok').textContent = t ? '🔑 토큰 바꾸기/지우기' : '🔑 깃허브 토큰 넣기 (등록 기록 올리기)'; };
+    showPush(); setInterval(showPush, 3000);
+    $('lp-tok').onclick = () => {
+      const v = prompt('깃허브 토큰을 붙여 넣으세요 (이 저장소 contents 쓰기 권한 · 이 크롬에만 저장됨).\n비우고 확인하면 지웁니다.', '');
+      if (v === null) return;
+      GM_setValue('gh_token', v.trim()); GM_setValue('pushStatus', '');
+      showPush(); if (v.trim()) { pushDone(); msg('토큰 저장 · 기록 올리는 중…'); } else msg('토큰을 지웠습니다');
+    };
     checkNewVersion().then((latest) => {
       if (!latest) return;
       const b = $('lp-upd');
@@ -775,6 +834,8 @@
       const d = doneList(key);
       const nd = d.includes(r.no) ? d.filter((x) => x !== r.no) : d.concat(r.no);
       GM_setValue('done_' + key, JSON.stringify(nd));
+      if (!nd.includes(r.no)) { const cx = jget('cancelled', '{}'); cx[key] = (cx[key] || []).concat(r.no); GM_setValue('cancelled', JSON.stringify(cx)); }
+      pushDone();
       refresh();
       msg(r.no + (nd.includes(r.no) ? ' 완료로 표시' : ' 완료 표시 취소'));
     };
