@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.7.0
+// @version      0.7.1
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -696,12 +696,12 @@
     if (!document.body || document.getElementById('lp-panel')) return;
     const box = document.createElement('div');
     box.id = 'lp-panel';
-    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:280px;box-shadow:0 2px 8px #0003';
+    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#fff;border:2px solid #03c75a;border-radius:8px;padding:10px;font:13px sans-serif;width:300px;max-height:calc(100vh - 24px);overflow:auto;box-shadow:0 2px 8px #0003';
     box.innerHTML = `
       <b>후기 도우미</b> <span id="lp-st" style="color:#666"></span><br>
       <button id="lp-upd" style="display:none;width:100%;margin-bottom:4px;padding:6px;font-size:13px;font-weight:bold;color:#fff;background:#f57c00;border:0;border-radius:4px;cursor:pointer">새 판 있음 — 눌러서 업데이트</button>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
-      <input id="lp-sel" type="hidden"><div id="lp-list" style="max-height:200px;overflow:auto;border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
+      <input id="lp-sel" type="hidden"><div id="lp-list" style="border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
       <button id="lp-clear" style="width:100%;margin-top:6px;padding:6px;font-size:13px;cursor:pointer">🗑 본문 지우기</button>
       <button id="lp-done" style="width:100%;margin:2px 0">✔ 이 후기 완료/취소 표시</button>
@@ -723,7 +723,7 @@
         const d = dn.includes(r.no);
         const country = r.title.includes('일본') ? '일본' : r.title.includes('미국') ? '미국' : '';
         const off = (c && country && c !== country) || (siteKey() === 'site' && !doneList('my').includes(r.no));
-        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:block;padding:4px 6px;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
+        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:block;padding:2px 6px;font-size:12px;line-height:1.3;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
           <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
       }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
       $('lp-list').querySelectorAll('input[name=lp-pick]').forEach((el) => {
