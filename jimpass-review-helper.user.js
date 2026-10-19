@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.8
+// @version      0.9.9
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -584,55 +584,42 @@
     return slideLike.length ? 'slide' : 'other';
   }
 
-  // 짐패스 웹 이용후기: 내용 칸(TinyMCE)의 사진 올리기 → 없으면 화면의 사진 파일 칸 → 없으면 본문에 사진을 바로 넣습니다
+  // 짐패스 웹 이용후기: 사진은 본문에 넣지 않고 「파일첨부」 칸(파일을 선택하세요)에만 올립니다.
+  // 짐패스 화면은 올라간 사진을 본문에도 저절로 끼워 넣으므로, 그렇게 들어간 사진은 본문에서 뺍니다.
+  // (2026-10-19 크롬 실측: #fileupload 에 파일을 넣으면 첨부 목록 .file-wrap 에 올라가고 본문에도 img 가 자동 삽입됨)
   async function photosToSite(r, say) {
     const ph = phData(r.no);
     if (!ph.length) { log('사진 칸 비어 있음 — 사진은 넣지 않음', r.no); say && say('이 후기 사진 칸이 비어 있어 사진은 넣지 않았습니다'); return 'none'; }
     const ed = PW.tinymce && PW.tinymce.activeEditor;
-    const opt = (k) => { try { return ed.options ? ed.options.get(k) : ed.settings[k]; } catch (e) { return undefined; } };
-    const fins = [...document.querySelectorAll('input[type=file]')];
-    log('짐패스 웹 사진 1 화면', {
-      편집기판: PW.tinymce && PW.tinymce.majorVersion + '.' + PW.tinymce.minorVersion,
-      올리는주소: ed && (opt('images_upload_url') || ''), 올리는장치: ed && typeof opt('images_upload_handler'),
-      자동올리기: ed && opt('automatic_uploads'), 파일칸: fins.map((i) => ({ 이름: i.name, id: i.id, accept: i.accept, 여러장: i.multiple, 보임: vis(i), 옆글: ((i.closest('tr,li,div,td') || {}).innerText || '').replace(/\s+/g, ' ').slice(0, 30) })),
-      사진단추: [...document.querySelectorAll('button,a,input[type=button],label')].filter((e) => /사진|이미지|첨부|image/i.test(labOf(e) + (e.value || ''))).slice(0, 10).map(descOf),
-    });
-    if (!ed) throw new Error('내용 칸(에디터)을 못 찾았습니다');
-    const n0 = ed.getBody().querySelectorAll('img').length;
-    const hasUpload = !!(opt('images_upload_url') || typeof opt('images_upload_handler') === 'function');
-    if (hasUpload) {
-      ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false);
-      ed.insertContent(ph.map((p) => '<p><img src="' + p.d + '" alt=""></p>').join(''));
-      log('짐패스 웹 사진 2 본문에 ' + ph.length + '장 넣고 서버로 올리는 중');
-      try {
-        const res = await ed.uploadImages();
-        log('짐패스 웹 사진 3 올리기 결과', (res || []).map((x) => ({ 됨: x.status, 주소: String((x.element && x.element.src) || x.uploadUri || '').slice(0, 60) })));
-      } catch (e) { errLog('짐패스 웹 사진 올리기', e); }
-    } else {
-      const fin = fins.find((i) => /image/.test(i.accept || '') && /content|editor|photo|image|사진/i.test(i.name + i.id)) || null;
-      if (fin) {
-        log('짐패스 웹 사진 2 사진 파일 칸에 넣음', descOf(fin));
-        const files = ph.map(phToFile);
-        if (fin.multiple) putFiles(fin, files, '짐패스 웹 사진 2');
-        else for (const f of files) { putFiles(fin, [f], '짐패스 웹 사진 2'); await sleep(2500); }
-        await sleep(2500);
-      } else {
-        ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false);
-        ed.insertContent(ph.map((p) => '<p><img src="' + p.d + '" alt=""></p>').join(''));
-        log('짐패스 웹 사진 2 올리기 장치가 없어 본문에 사진을 바로 넣음', ph.length + '장');
-      }
+    const fin = document.getElementById('fileupload') || [...document.querySelectorAll('input[type=file]')].find((i) => i.multiple && /files/.test(i.name));
+    const wraps = () => document.querySelectorAll('.file-wrap').length;
+    log('짐패스 웹 사진 1 화면', { 첨부파일칸: fin ? descOf(fin) + ' name=' + fin.name + ' 여러장=' + fin.multiple : '없음', 첨부목록: wraps(), 본문사진: ed ? ed.getBody().querySelectorAll('img').length : '편집기없음',
+      파일칸전체: [...document.querySelectorAll('input[type=file]')].map((i) => i.name + '#' + i.id) });
+    if (!fin) throw new Error('파일첨부 칸(파일을 선택하세요)을 못 찾았습니다');
+    const bodyImgs0 = ed ? new Set(ed.getBody().querySelectorAll('img')) : new Set();
+    const w0 = wraps();
+    say && say('사진 ' + ph.length + '장을 파일첨부 칸에 올리는 중…');
+    putFiles(fin, ph.map(phToFile), '짐패스 웹 사진 2');
+    let w = 0; const limit = 8000 + 4000 * ph.length;
+    while (w < limit) { await sleep(500); w += 500; if (wraps() >= w0 + ph.length) break; if (w % 2000 === 0) log('짐패스 웹 사진 3 올리는 중', { 초: w / 1000, 첨부목록: w0 + '→' + wraps() }); }
+    const got = wraps() - w0;
+    log('짐패스 웹 사진 3 첨부 결과', { 첨부목록: w0 + '→' + wraps(), 걸린초: w / 1000, 목록글: [...document.querySelectorAll('.file-wrap')].slice(-ph.length).map((e) => e.innerText.replace(/\s+/g, ' ').slice(0, 40)) });
+    await sleep(1500);
+    let removed = 0;
+    if (ed) {
+      const strip = () => { ed.getBody().querySelectorAll('img').forEach((i) => { if (!bodyImgs0.has(i)) { i.remove(); removed++; } }); };
+      strip(); await sleep(1500); strip();
+      try { ed.setDirty && ed.setDirty(true); ed.save && ed.save(); } catch (e) { errLog('짐패스 웹 본문 저장', e); }
     }
-    const imgs = [...ed.getBody().querySelectorAll('img')];
-    const inline = imgs.filter((i) => /^data:/.test(i.getAttribute('src') || '')).length;
-    log('짐패스 웹 사진 4 결과', { 본문사진: n0 + '→' + imgs.length, 그대로박힌사진: inline, 주소들: imgs.slice(-3).map((i) => String(i.getAttribute('src') || '').slice(0, 50)) });
-    if (imgs.length <= n0) throw new Error('사진이 본문에 들어가지 않았습니다');
-    say && say('사진 ' + (imgs.length - n0) + '장을 넣었습니다' + (inline ? ' (서버에 따로 올라가지 않고 글에 직접 들어갔습니다 — 등록 뒤 사진이 보이는지 봐 주세요)' : ''));
-    return 'ok';
+    log('짐패스 웹 사진 4 본문에 저절로 들어간 사진 뺌', { 뺀수: removed, 본문사진: ed ? ed.getBody().querySelectorAll('img').length : '-' });
+    if (got < ph.length) throw new Error('첨부 목록에 ' + got + '/' + ph.length + '장만 올라갔습니다 (' + (w / 1000) + '초 기다림)');
+    say && say('사진 ' + got + '장을 파일첨부에 올렸습니다 (본문에는 넣지 않음)');
+    return 'attach';
   }
 
   // 사진 단계: 실패해도 나머지 채운 것은 두고, 까닭을 기록과 안내에 남깁니다
   async function photoStep(fn, say) {
-    try { const r = await fn(); log('사진 단계 끝', r); return r === 'none' ? '사진 칸이 비어 사진은 직접 넣어 주세요. ' : r === 'slide' ? '사진을 슬라이드로 넣었습니다. ' : '사진을 넣었습니다. '; }
+    try { const r = await fn(); log('사진 단계 끝', r); return r === 'none' ? '사진 칸이 비어 사진은 직접 넣어 주세요. ' : r === 'slide' ? '사진을 슬라이드로 넣었습니다. ' : r === 'attach' ? '사진을 파일첨부에 올렸습니다. ' : '사진을 넣었습니다. '; }
     catch (e) { errLog('사진 넣기', e); return '사진 넣기 실패(' + e.message + ') — 사진은 직접 끌어 넣어 주세요. '; }
   }
 
@@ -797,7 +784,7 @@
   // 진단: 에디터 구조와 선택 상태를 모아 복사합니다 (붙여넣어 보내 주세요)
   function diagnose() {
     const out = [];
-    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.8) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
+    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.9) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
     out.push('주소 ' + location.href.slice(0, 80) + ' / 최상단창 ' + (window === window.top));
     const ces = [...document.querySelectorAll('[contenteditable]')];
     out.push('편집칸 ' + ces.length + '개');
