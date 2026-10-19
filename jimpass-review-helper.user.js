@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.7
+// @version      0.9.8
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -411,8 +411,233 @@
   }
 
 
+  /* ---------- 0.9.8 : 후기별 사진 칸 — 넣어 둔 사진을 카페(슬라이드)와 짐패스 웹에 올립니다 ---------- */
+  // 사진은 이 크롬 안(도우미 저장소)에 후기 번호별로 작게 줄여(한 장 480KB 아래) 보관합니다. 카페와 짐패스 웹이 같이 씁니다.
+  const PW = (typeof unsafeWindow !== 'undefined' && unsafeWindow) || window;   // 화면 쪽 진짜 창 (오늘 0.9.7 사고: 도우미 쪽 창으로 신호를 만들면 오류)
+  const phNames = (no) => { try { return JSON.parse(GM_getValue('phn_' + no, '[]')) || []; } catch (e) { errLog('사진 이름 읽기', e); return []; } };
+  const phData = (no) => { try { return JSON.parse(GM_getValue('ph_' + no, '[]')) || []; } catch (e) { errLog('사진 읽기', e); return []; } };
+  function phSave(no, arr) {
+    GM_setValue('ph_' + no, JSON.stringify(arr));
+    GM_setValue('phn_' + no, JSON.stringify(arr.map((p) => p.n)));
+  }
+  function phClear(no) { GM_setValue('ph_' + no, '[]'); GM_setValue('phn_' + no, '[]'); log('사진 비움', no); }
+  function shrinkToDataUrl(file, maxPx, limitKB) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file);
+      const im = new Image();
+      im.onload = () => {
+        try {
+          let side = maxPx, q = 0.9, out = '';
+          for (let k = 0; k < 12; k++) {
+            const sc = Math.min(1, side / Math.max(im.naturalWidth, im.naturalHeight));
+            const c = document.createElement('canvas');
+            c.width = Math.round(im.naturalWidth * sc); c.height = Math.round(im.naturalHeight * sc);
+            const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+            out = c.toDataURL('image/jpeg', q);
+            if (out.length * 0.75 / 1024 <= limitKB) break;
+            if (q > 0.62) q -= 0.08; else side = Math.round(side * 0.85);
+          }
+          URL.revokeObjectURL(url);
+          res({ d: out, w: im.naturalWidth, h: im.naturalHeight });
+        } catch (e) { URL.revokeObjectURL(url); rej(e); }
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('사진을 열지 못함(형식: ' + (file.type || file.name) + ')')); };
+      im.src = url;
+    });
+  }
+  async function readDropped(dt) {
+    const out = [];
+    const readEntry = async (en) => {
+      if (en.isFile) await new Promise((r) => en.file((f) => { out.push(f); r(); }, () => r()));
+      else if (en.isDirectory) {
+        const rd = en.createReader(); let batch;
+        do { batch = await new Promise((r) => rd.readEntries(r, () => r([]))); for (const c of batch) await readEntry(c); } while (batch.length);
+      }
+    };
+    const ens = [...(dt.items || [])].map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+    if (ens.length) { for (const en of ens) await readEntry(en); }
+    else out.push(...(dt.files || []));
+    return out;
+  }
+  async function phAdd(no, files, say) {
+    const imgs = [...files].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name));
+    const skipped = [...files].filter((f) => !imgs.includes(f)).map((f) => f.name);
+    imgs.sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+    log('사진 받음', { 후기: no, 받은파일: files.length, 사진: imgs.length, 뺀것: skipped.slice(0, 8) });
+    const arr = phData(no);
+    let added = 0;
+    for (const f of imgs) {
+      if (arr.some((p) => p.n === f.name && p.s === f.size)) { log('사진 이미 있음 — 건너뜀', f.name); continue; }
+      try {
+        say && say('사진 줄이는 중… ' + (added + 1) + '/' + imgs.length);
+        const r = await shrinkToDataUrl(f, 1600, 480);
+        arr.push({ n: f.name, s: f.size, d: r.d });
+        added++;
+        log('사진 저장', { 이름: f.name, 원본KB: (f.size / 1024) | 0, 저장KB: (r.d.length * 0.75 / 1024) | 0, 원본크기: r.w + 'x' + r.h });
+      } catch (e) { errLog('사진 줄이기 ' + f.name, e); }
+    }
+    try { phSave(no, arr); } catch (e) { errLog('사진 저장(크롬 저장소)', e); throw e; }
+    say && say(no + ' 사진 ' + added + '장 넣음 (모두 ' + arr.length + '장)' + (skipped.length ? ' · 사진 아닌 파일 ' + skipped.length + '개는 뺌' : ''));
+    return added;
+  }
+  function phToFile(p, i) {
+    const b64 = p.d.split(',')[1]; const bin = atob(b64); const u = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+    const nm = String(i + 1).padStart(2, '0') + '_' + p.n.replace(/\.[^.]+$/, '') + '.jpg';
+    try { return new PW.File([u], nm, { type: 'image/jpeg' }); } catch (e) { errLog('사진 파일 만들기(화면 쪽)', e); return new File([u], nm, { type: 'image/jpeg' }); }
+  }
+  function pageClick(el) {
+    const r = el.getBoundingClientRect(); const x = r.left + Math.min(Math.max(r.width - 2, 1), 20), y = r.top + r.height / 2;
+    for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      const Ev = t.startsWith('pointer') && PW.PointerEvent ? PW.PointerEvent : PW.MouseEvent;
+      el.dispatchEvent(new Ev(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+    }
+  }
+  const vis = (e) => !!(e && (e.offsetParent || (e.getClientRects && e.getClientRects().length)));
+  const labOf = (e) => ((e.innerText || e.textContent || (e.getAttribute && (e.getAttribute('title') || e.getAttribute('aria-label') || e.getAttribute('data-name'))) || '') + '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  const descOf = (e) => e ? e.tagName + '.' + String(e.className || '').replace(/\s+/g, '.').slice(0, 44) + '「' + labOf(e) + '」' : '없음';
+  const notMine = (e) => !e.closest('#lp-panel');
+  // 도우미 패널 위에 사진을 놓았을 때 크롬이 사진 파일을 열어 버리지 않게 막습니다
+  ['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => { if (e.target && e.target.closest && e.target.closest('#lp-panel')) e.preventDefault(); }, true));
+  const imgComps = () => [...document.querySelectorAll('.se-component')].filter((c) => /image|slide|strip|collage/i.test(String(c.className)));
+
+  // 파일 고르기 창이 열리는 순간 그 칸을 붙잡습니다 (블로그 도우미에서 쓰는 방식)
+  async function catchFileInput(clickFn, label) {
+    const proto = PW.HTMLInputElement.prototype, orig = proto.click;
+    let cap = null;
+    proto.click = function () { if (this.type === 'file') { cap = this; return; } return orig.apply(this, arguments); };
+    try {
+      clickFn();
+      for (let w = 0; !cap && w < 3000; w += 200) await sleep(200);
+    } finally { proto.click = orig; }
+    log(label + ' 파일 고르기 칸 ' + (cap ? '붙잡음 accept=' + (cap.accept || '-') + ' 여러장=' + cap.multiple + ' 이름=' + (cap.name || '-') : '못 붙잡음(3초)'));
+    return cap;
+  }
+  function putFiles(input, files, label) {
+    const dt = new PW.DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    input.files = dt.files;
+    for (const n of ['input', 'change']) input.dispatchEvent(new PW.Event(n, { bubbles: true }));
+    log(label + ' 파일 칸에 ' + dt.files.length + '장 넣고 알림 보냄', { 칸이받은수: input.files.length });
+  }
+
+  // 카페(내 카페 · 짐패스 카페): 에디터 「사진」 단추로 한꺼번에 올리고 「슬라이드」를 고릅니다
+  async function photosToCafe(r, say) {
+    const ph = phData(r.no);
+    if (!ph.length) { log('사진 칸 비어 있음 — 사진은 넣지 않음', r.no); say && say('이 후기 사진 칸이 비어 있어 사진은 넣지 않았습니다'); return 'none'; }
+    say && say('사진 ' + ph.length + '장 올리는 중…');
+    const files = ph.map(phToFile);
+    log('카페 사진 1 준비', { 후기: r.no, 장수: files.length, 이름: files.map((f) => f.name).join(',').slice(0, 200) });
+    // 짐패스 카페는 양식 ③(사진) 칸 끝에 커서를 둡니다. 못 찾으면 에디터가 둔 자리에 들어갑니다.
+    const p3 = [...document.querySelectorAll('.se-text-paragraph')].find((p) => /동일한 제품 촬영 컷/.test(p.innerText || p.textContent || ''));
+    if (p3) { try { if (p3.scrollIntoView) p3.scrollIntoView({ block: "center" }); pageClick(p3); caretAtEnd(p3); log('카페 사진 2 커서를 ③ 사진 칸 끝에 둠'); } catch (e) { errLog('사진 자리 잡기', e); } }
+    else log('카페 사진 2 ③ 사진 칸 줄 없음 — 지금 커서 자리에 넣음');
+    const tb = document.querySelector('.se-toolbar') || document;
+    const tbtn = [...tb.querySelectorAll('button')].filter(vis);
+    const btn = tbtn.find((b) => /se-image-toolbar-button|toolbar-item-image/.test(String(b.className)) || b.getAttribute('data-name') === 'image') ||
+      tbtn.find((b) => /^사진/.test(labOf(b)));
+    if (!btn) { log('카페 사진 3 사진 단추 없음 · 위쪽 단추들', tbtn.slice(0, 40).map(descOf)); throw new Error('에디터의 사진 단추를 못 찾았습니다'); }
+    log('카페 사진 3 사진 단추', descOf(btn));
+    const before = imgComps().length, comps0 = document.querySelectorAll('.se-component').length;
+    let input = await catchFileInput(() => pageClick(btn), '카페 사진 4');
+    if (!input) {
+      input = [...document.querySelectorAll('input[type=file]')].find((i) => /image/.test(i.accept || '')) || null;
+      log('카페 사진 4-2 화면의 사진 파일 칸', input ? descOf(input) + ' accept=' + input.accept : '없음 (파일 칸 ' + document.querySelectorAll('input[type=file]').length + '개)');
+      if (!input) throw new Error('사진 고르기 칸을 못 찾았습니다');
+    }
+    putFiles(input, files, '카페 사진 5');
+    let chose = false, confirmed = false, dumped = false, retry = 0, w = 0;
+    const limit = 10000 + 3000 * files.length;
+    while (w < limit) {
+      await sleep(500); w += 500;
+      if (!dumped && w >= 1500) {
+        dumped = true;
+        const pops = [...document.querySelectorAll('[class*=popup],[class*=layer],[class*=dialog],[class*=modal]')].filter((e) => vis(e) && notMine(e));
+        log('카페 사진 6 떠 있는 창', pops.slice(0, 10).map(descOf));
+        const bs = [...document.querySelectorAll('button,[role=button],label,li,a')].filter((e) => vis(e) && notMine(e) && /개별|콜라주|슬라이드|확인|완료|삽입|적용/.test(labOf(e)));
+        log('카페 사진 6 보이는 고르기·확인 단추', bs.slice(0, 16).map(descOf));
+      }
+      if (!chose) {
+        const c = [...document.querySelectorAll('button,[role=button],label,li,a,span,div,strong,em,p')].filter((e) => vis(e) && notMine(e) && !e.closest('.se-component') && (/slide/i.test(String(e.className)) && /popup|layer|select|type|mode/i.test(String(e.className)) || (e.children.length === 0 && /^슬라이드$/.test(labOf(e)))));
+        if (c.length) { const t = c[0].closest('button,label,a,[role=button],li') || c[0]; log('카페 사진 7 「슬라이드」 누름', descOf(t)); pageClick(t); chose = true; await sleep(800); continue; }
+      }
+      if (chose && retry < 3) {
+        const left = [...document.querySelectorAll('*')].filter((e) => e.children.length === 0 && vis(e) && notMine(e) && !e.closest('.se-component') && /^슬라이드$/.test(labOf(e)));
+        const stillPop = left.length && left[0].closest('[class*=popup],[class*=layer],[class*=dialog]');
+        if (stillPop && !confirmed) { let t = left[0]; for (let i = 0; i <= retry; i++) t = t.parentElement || t; retry++; log('카페 사진 7-2 고르는 창이 그대로라 바깥 상자를 다시 누름(' + retry + '단계)', descOf(t)); pageClick(t); await sleep(800); }
+      }
+      if (chose && !confirmed) {
+        const ok = [...document.querySelectorAll('button,[role=button]')].filter((e) => vis(e) && notMine(e) && !e.closest('.se-toolbar') && /^(확인|완료|삽입|적용|올리기)$/.test(labOf(e)));
+        if (ok.length) { log('카페 사진 8 확인 누름', descOf(ok[0])); pageClick(ok[0]); confirmed = true; await sleep(800); }
+      }
+      const now = imgComps().length;
+      const uploading = document.querySelectorAll('.se-image-uploading, [class*="uploading"], [class*="progress"]').length;
+      if (w % 2000 === 0) log('카페 사진 9 기다림', { 초: w / 1000, 사진덩어리: before + '→' + now, 올리는중: uploading, 슬라이드고름: chose, 확인누름: confirmed });
+      if (now > before && !uploading) break;
+    }
+    const after = imgComps();
+    const added = after.slice(before);
+    const slideLike = added.filter((c) => /slide|strip/i.test(String(c.className)));
+    log('카페 사진 10 결과', { 사진덩어리: before + '→' + after.length, 덩어리전체: comps0 + '→' + document.querySelectorAll('.se-component').length, 새덩어리모양: added.map((c) => String(c.className).slice(0, 60)), 슬라이드로보임: slideLike.length, 슬라이드고름: chose });
+    if (after.length <= before) throw new Error('사진이 본문에 들어가지 않았습니다 (' + (w / 1000) + '초 기다림)');
+    say && say('사진 ' + files.length + '장을 넣었습니다' + (slideLike.length ? ' (슬라이드)' : chose ? '' : ' — 슬라이드 고르는 창이 안 떠서 기본 모양으로 들어갔습니다'));
+    return slideLike.length ? 'slide' : 'other';
+  }
+
+  // 짐패스 웹 이용후기: 내용 칸(TinyMCE)의 사진 올리기 → 없으면 화면의 사진 파일 칸 → 없으면 본문에 사진을 바로 넣습니다
+  async function photosToSite(r, say) {
+    const ph = phData(r.no);
+    if (!ph.length) { log('사진 칸 비어 있음 — 사진은 넣지 않음', r.no); say && say('이 후기 사진 칸이 비어 있어 사진은 넣지 않았습니다'); return 'none'; }
+    const ed = PW.tinymce && PW.tinymce.activeEditor;
+    const opt = (k) => { try { return ed.options ? ed.options.get(k) : ed.settings[k]; } catch (e) { return undefined; } };
+    const fins = [...document.querySelectorAll('input[type=file]')];
+    log('짐패스 웹 사진 1 화면', {
+      편집기판: PW.tinymce && PW.tinymce.majorVersion + '.' + PW.tinymce.minorVersion,
+      올리는주소: ed && (opt('images_upload_url') || ''), 올리는장치: ed && typeof opt('images_upload_handler'),
+      자동올리기: ed && opt('automatic_uploads'), 파일칸: fins.map((i) => ({ 이름: i.name, id: i.id, accept: i.accept, 여러장: i.multiple, 보임: vis(i), 옆글: ((i.closest('tr,li,div,td') || {}).innerText || '').replace(/\s+/g, ' ').slice(0, 30) })),
+      사진단추: [...document.querySelectorAll('button,a,input[type=button],label')].filter((e) => /사진|이미지|첨부|image/i.test(labOf(e) + (e.value || ''))).slice(0, 10).map(descOf),
+    });
+    if (!ed) throw new Error('내용 칸(에디터)을 못 찾았습니다');
+    const n0 = ed.getBody().querySelectorAll('img').length;
+    const hasUpload = !!(opt('images_upload_url') || typeof opt('images_upload_handler') === 'function');
+    if (hasUpload) {
+      ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false);
+      ed.insertContent(ph.map((p) => '<p><img src="' + p.d + '" alt=""></p>').join(''));
+      log('짐패스 웹 사진 2 본문에 ' + ph.length + '장 넣고 서버로 올리는 중');
+      try {
+        const res = await ed.uploadImages();
+        log('짐패스 웹 사진 3 올리기 결과', (res || []).map((x) => ({ 됨: x.status, 주소: String((x.element && x.element.src) || x.uploadUri || '').slice(0, 60) })));
+      } catch (e) { errLog('짐패스 웹 사진 올리기', e); }
+    } else {
+      const fin = fins.find((i) => /image/.test(i.accept || '') && /content|editor|photo|image|사진/i.test(i.name + i.id)) || null;
+      if (fin) {
+        log('짐패스 웹 사진 2 사진 파일 칸에 넣음', descOf(fin));
+        const files = ph.map(phToFile);
+        if (fin.multiple) putFiles(fin, files, '짐패스 웹 사진 2');
+        else for (const f of files) { putFiles(fin, [f], '짐패스 웹 사진 2'); await sleep(2500); }
+        await sleep(2500);
+      } else {
+        ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false);
+        ed.insertContent(ph.map((p) => '<p><img src="' + p.d + '" alt=""></p>').join(''));
+        log('짐패스 웹 사진 2 올리기 장치가 없어 본문에 사진을 바로 넣음', ph.length + '장');
+      }
+    }
+    const imgs = [...ed.getBody().querySelectorAll('img')];
+    const inline = imgs.filter((i) => /^data:/.test(i.getAttribute('src') || '')).length;
+    log('짐패스 웹 사진 4 결과', { 본문사진: n0 + '→' + imgs.length, 그대로박힌사진: inline, 주소들: imgs.slice(-3).map((i) => String(i.getAttribute('src') || '').slice(0, 50)) });
+    if (imgs.length <= n0) throw new Error('사진이 본문에 들어가지 않았습니다');
+    say && say('사진 ' + (imgs.length - n0) + '장을 넣었습니다' + (inline ? ' (서버에 따로 올라가지 않고 글에 직접 들어갔습니다 — 등록 뒤 사진이 보이는지 봐 주세요)' : ''));
+    return 'ok';
+  }
+
+  // 사진 단계: 실패해도 나머지 채운 것은 두고, 까닭을 기록과 안내에 남깁니다
+  async function photoStep(fn, say) {
+    try { const r = await fn(); log('사진 단계 끝', r); return r === 'none' ? '사진 칸이 비어 사진은 직접 넣어 주세요. ' : r === 'slide' ? '사진을 슬라이드로 넣었습니다. ' : '사진을 넣었습니다. '; }
+    catch (e) { errLog('사진 넣기', e); return '사진 넣기 실패(' + e.message + ') — 사진은 직접 끌어 넣어 주세요. '; }
+  }
+
   /* ---------- 사이트별 채우기 ---------- */
-  async function fillMyCafe(r) {
+  async function fillMyCafe(r, say) {
     GM_setValue('pending_my', r.no);
     await fillTitle(r.title);
     const ed = editorEl();
@@ -420,6 +645,7 @@
     pasteText(ed, r.body);
     await sleep(300);
     await fillTags(r.tags);
+    return await photoStep(() => photosToCafe(r, say), say);
   }
 
   const editorText = () => (editorEl() ? editorEl().innerText : '');
@@ -571,7 +797,7 @@
   // 진단: 에디터 구조와 선택 상태를 모아 복사합니다 (붙여넣어 보내 주세요)
   function diagnose() {
     const out = [];
-    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.7) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
+    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.8) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
     out.push('주소 ' + location.href.slice(0, 80) + ' / 최상단창 ' + (window === window.top));
     const ces = [...document.querySelectorAll('[contenteditable]')];
     out.push('편집칸 ' + ces.length + '개');
@@ -659,9 +885,12 @@
     if (GM_getValue('lastApplied', '') === r.no && docText().includes(r.no)) {
       // 기본 양식이 이미 채워진 채로 열렸습니다. 유튜브만 넣으면 됩니다.
       report('양식은 이미 채워져 있습니다. 유튜브 링크 넣는 중…');
-      try { await addYoutube(r.youtube); }
-      catch (e) { errLog('유튜브 넣기', e); report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
-      return;
+      let yErr = null;
+      try { await addYoutube(r.youtube); log('유튜브 끝 — 정상'); }
+      catch (e) { errLog('유튜브 넣기', e); yErr = e; }
+      const note = await photoStep(() => photosToCafe(r, report), report);
+      if (yErr) throw new Error(note + '유튜브 링크 자동 입력 실패: ' + yErr.message + ' — 유튜브는 링크 단추로 직접: ' + r.youtube);
+      return note;
     }
     if (Date.now() - GM_getValue('autofillAt', 0) > 60000) {
       // 이 화면은 다른 후기로 열렸습니다. 새로고침하면 고른 후기로 양식이 채워진 채 열립니다.
@@ -705,11 +934,15 @@
     spyOn = false;
     if (countForm() !== 1 || !docText().includes(r.no)) throw new Error('양식이 제대로 들어가지 않았습니다 (개수 ' + countForm() + ')');
     report('유튜브 링크 넣는 중…');
+    let yErr = null;
     try { await addYoutube(r.youtube); log('유튜브 끝 — 정상'); }
-    catch (e) { errLog('유튜브 넣기', e); report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+    catch (e) { errLog('유튜브 넣기', e); yErr = e; }
+    const note = await photoStep(() => photosToCafe(r, report), report);
+    if (yErr) throw new Error('양식은 채웠습니다. ' + note + '유튜브 링크 자동 입력 실패: ' + yErr.message + ' — 유튜브는 링크 단추로 직접: ' + r.youtube);
+    return note;
   }
 
-  async function fillJimSite(r) {
+  async function fillJimSite(r, say) {
     GM_setValue('pending_site', r.no);
     // 관련 신청서 선택 창을 먼저 엽니다 (창 열기는 단추를 누른 직후에만 허용됩니다)
     GM_setValue('wantCart', JSON.stringify({ no: r.no, at: Date.now() }));
@@ -726,6 +959,7 @@
     let keep = '';
     try { keep = [...ed.getBody().querySelectorAll('img')].map((im) => '<p>' + im.outerHTML + '</p>').join(''); } catch (e) { errLog('본문 사진 보존', e); }
     ed.setContent(html + keep);
+    return await photoStep(() => photosToSite(r, say), say);
   }
 
   /* ---------- 관련 신청서 선택 창: 신청서번호로 찾아 체크 ---------- */
@@ -873,8 +1107,30 @@
         // 0.9.5 : 동그라미(쓸 후기)와 네모(지울 후기)를 네모 하나로 합침 — 마지막에 체크한 것(▶)을 채우고, 체크한 것 전부를 지웁니다
         if (!pickInit && all[pick]) { delPicked.add(all[pick].no); pickInit = true; }
         const isCur = i === pick;
-        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:flex;align-items:center;border-bottom:1px solid #eee;padding:2px 4px;font-size:12px;line-height:1.3;cursor:pointer;${isCur ? 'background:#eef5ff;font-weight:bold;' : ''}${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}"><input type="checkbox" class="lp-delchk" data-no="${r.no}" data-i="${i}" style="margin:0 4px 0 0" ${delPicked.has(r.no) ? 'checked' : ''}>${isCur ? '▶ ' : ''}${d ? '✔ ' : ''}${allDone(r.no) ? '🏁' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
+        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:flex;align-items:center;border-bottom:1px solid #eee;padding:2px 4px;font-size:12px;line-height:1.3;cursor:pointer;${isCur ? 'background:#eef5ff;font-weight:bold;' : ''}${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}"><input type="checkbox" class="lp-delchk" data-no="${r.no}" data-i="${i}" style="margin:0 4px 0 0" ${delPicked.has(r.no) ? 'checked' : ''}>${isCur ? '▶ ' : ''}${d ? '✔ ' : ''}${allDone(r.no) ? '🏁' : ''}${urlOf(r.no) ? '🔗' : ''}<span style="flex:1">${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 18)}</span><span class="lp-ph" data-no="${r.no}" title="여기에 사진(또는 사진 폴더)을 끌어다 놓거나 눌러서 고르세요${phNames(r.no).length ? '\n' + phNames(r.no).join('\n') : ''}" style="flex:none;margin-left:4px;padding:1px 5px;border:1px dashed ${phNames(r.no).length ? '#03c75a' : '#bbb'};border-radius:4px;font-weight:normal;color:${phNames(r.no).length ? '#03a04a' : '#999'};text-decoration:none">📷${phNames(r.no).length}</span>${phNames(r.no).length ? `<span class="lp-phx" data-no="${r.no}" title="이 후기 사진 비우기" style="flex:none;margin-left:2px;color:#c00;font-weight:normal">✖</span>` : ''}</label>`;
       }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
+      // 0.9.8 : 후기별 사진 칸 — 줄에 끌어다 놓거나 📷 를 눌러 고릅니다
+      $('lp-list').querySelectorAll('label').forEach((row) => {
+        const ph = row.querySelector('.lp-ph'); if (!ph) return;
+        const no = ph.dataset.no;
+        const on = (e) => { e.preventDefault(); e.stopPropagation(); row.style.outline = '2px dashed #03c75a'; };
+        row.addEventListener('dragenter', on, true); row.addEventListener('dragover', on, true);
+        row.addEventListener('dragleave', () => { row.style.outline = ''; }, true);
+        row.addEventListener('drop', async (e) => {
+          e.preventDefault(); e.stopPropagation(); row.style.outline = '';
+          try { const files = await readDropped(e.dataTransfer); log('사진 끌어놓기', no, files.length + '개'); await phAdd(no, files, msg); }
+          catch (err) { errLog('사진 끌어놓기', err); msg('사진 넣기 실패: ' + err.message); }
+          refresh();
+        }, true);
+        ph.onclick = (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const fi = document.createElement('input'); fi.type = 'file'; fi.multiple = true; fi.accept = 'image/*';
+          fi.onchange = async () => { try { await phAdd(no, fi.files, msg); } catch (err) { errLog('사진 고르기', err); msg('사진 넣기 실패: ' + err.message); } refresh(); };
+          fi.click();
+        };
+        const x = row.querySelector('.lp-phx');
+        if (x) x.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (confirm(no + ' 사진 ' + phNames(no).length + '장을 비울까요?')) { phClear(no); refresh(); msg(no + ' 사진을 비웠습니다'); } };
+      });
       const setCur = (i) => { $('lp-sel').value = i; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +i); };
       $('lp-list').querySelectorAll('input.lp-delchk').forEach((el) => {
         el.onchange = () => {
@@ -941,6 +1197,7 @@
       // 이 크롬의 목록에서 먼저 뺍니다
       const left = loadAll().filter((r) => !nos.includes(r.no));
       GM_setValue('reviews', JSON.stringify(left));
+      nos.forEach((no) => { try { phClear(no); } catch (e) { errLog('지운 후기 사진 비우기', e); } });
       GM_setValue('idx', 0); $('lp-sel').dataset.user = '';
       log('후기 지우기', nos.join(','), '남은', left.length);
       const token = GM_getValue('gh_token', '');
@@ -986,15 +1243,17 @@
       if (!r) return msg(loadAll().length ? '이 사이트에 올릴 후기가 더 없습니다 (모두 완료). 다시 올리려면 목록에서 줄을 체크하고 ✔ 완료/취소 단추를 누르세요' : '최신 후기 받아오기를 먼저 누르세요');
       try {
         msg('채우는 중…');
-        if (m === 'mycafe') await fillMyCafe(r);
+        let note = '';
+        if (m === 'mycafe') note = await fillMyCafe(r, msg);
         if (m === 'jimcafe') {
           const board = document.body.innerText;
           if ((/미국 후기/.test(board) && /일본/.test(r.title)) || (/일본 후기/.test(board) && /미국/.test(r.title)))
             return msg('게시판 나라와 후기 나라가 다릅니다');
-          await fillJimCafe(r, msg);
+          note = await fillJimCafe(r, msg);
         }
-        if (m === 'jimsite') await fillJimSite(r);
-        msg('채움 완료. 사진을 끌어다 넣고, 등록은 직접 누르세요.');
+        if (m === 'jimsite') note = await fillJimSite(r, msg);
+        log('채우기 끝', m, r.no, note || '');
+        msg('채움 완료. ' + (note || '사진을 끌어다 넣고, ') + '등록은 직접 누르세요.');
       } catch (err) {
         errLog('채우기(' + m + ')', err);
         msg('실패: ' + err.message);
