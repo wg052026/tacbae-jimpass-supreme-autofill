@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.6
+// @version      0.9.7
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -36,6 +36,14 @@
     if (LOG.length > 600) LOG.shift();
     console.log('[후기도우미]', line);
   }
+  // 0.9.7 : 실패하면 무엇을 하다가 · 무슨 오류로 · 몇째 줄에서 멈췄는지 반드시 남깁니다
+  function errLog(where, e) {
+    const stack = String((e && e.stack) || '').split('\n').slice(1, 6)
+      .map((l) => l.trim().replace(/\(?chrome-extension:\/\/[^)]*?:(\d+):(\d+)\)?/g, '[$1줄 $2칸]').replace(/\(?https?:\/\/[^)]*?:(\d+):(\d+)\)?/g, '[밖 $1줄]')).join(' ← ');
+    log('★실패 ' + where, { 오류: (e && e.message) || String(e), 종류: (e && e.name) || '', 자리: stack });
+  }
+  window.addEventListener('error', (ev) => { if (ev.error && String(ev.error.stack || '').includes('userscript')) errLog('잡히지 않은 오류', ev.error); });
+  window.addEventListener('unhandledrejection', (ev) => { const r = ev.reason; if (r && String(r.stack || '').includes('userscript')) errLog('잡히지 않은 오류(기다리던 일)', r); });
   // 에디터가 어떤 신호를 받고 막는지 기록합니다
   let spyOn = false;
   const spyCount = {};
@@ -52,7 +60,7 @@
   let mutCount = 0;
   try {
     new MutationObserver((m) => { mutCount += m.length; }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  } catch (e) {}
+  } catch (e) { errLog('화면 변화 감시 설치', e); }
 
 
   /* ---------- 기본 양식을 받는 통신 내용을 채워진 양식으로 바꿔치기 ---------- */
@@ -339,7 +347,7 @@
     return list;
   }
 
-  try { if (location.hostname === 'cafe.naver.com') fetchReviews().catch(() => {}); } catch (e) {}
+  try { if (location.hostname === 'cafe.naver.com') fetchReviews().catch((e) => errLog('첫 후기 목록 받기', e)); } catch (e) { errLog('첫 후기 목록 받기', e); }
 
   /* ---------- 글자 넣기 도구 ---------- */
   function setNative(el, value) {
@@ -359,7 +367,7 @@
   // 에디터가 자기 커서를 갱신하도록, 그 줄을 실제로 누른 것처럼 신호를 보냅니다.
   function clickLike(el) {
     const r = el.getBoundingClientRect();
-    const o = { bubbles: true, cancelable: true, view: window, clientX: r.right - 2, clientY: r.top + r.height / 2 };
+    const o = { bubbles: true, cancelable: true, clientX: r.right - 2, clientY: r.top + r.height / 2 };
     for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
       el.dispatchEvent(new MouseEvent(t, o));
     }
@@ -508,7 +516,10 @@
     if (!ok) { log('유튜브 6 확인 단추 없음', [...root.querySelectorAll('button')].map(btnInfo)); throw new Error('링크 창의 확인 단추를 못 찾았습니다'); }
     if (isOff(ok)) log('유튜브 6 확인 단추가 12초 뒤에도 잠김 — 그래도 눌러 봅니다', btnInfo(ok));
     for (let k = 1; k <= 3; k++) {
-      for (const type of ['mousedown', 'mouseup', 'click']) ok.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      try {
+        for (const type of ['mousedown', 'mouseup']) ok.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+        ok.click();
+      } catch (e) { errLog('유튜브 확인 누르기', e); throw e; }
       await sleep(800);
       const closed = !input.isConnected || !shown(input);
       log('유튜브 7 확인 누름', { 번째: k, 창닫힘: closed });
@@ -560,7 +571,7 @@
   // 진단: 에디터 구조와 선택 상태를 모아 복사합니다 (붙여넣어 보내 주세요)
   function diagnose() {
     const out = [];
-    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.6) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
+    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.7) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
     out.push('주소 ' + location.href.slice(0, 80) + ' / 최상단창 ' + (window === window.top));
     const ces = [...document.querySelectorAll('[contenteditable]')];
     out.push('편집칸 ' + ces.length + '개');
@@ -628,7 +639,7 @@
     spyOn = true;
     for (const [name, run] of methods) {
       if (bodyEmpty() || countForm() === 0 && docText().trim().length < 3) return name === methods[0][0] ? '이미 비어 있음' : '이미 비어 있음';
-      try { await run(); } catch (e) { console.log('[후기도우미] 지우기 방법 오류', name, e); }
+      try { await run(); } catch (e) { errLog('지우기 방법 ' + name, e); }
       await sleep(500);
       const left = docText().replace(/\s+/g, '').length;
       console.log('[후기도우미] 지우기 시도', name, '남은 글자', left);
@@ -649,7 +660,7 @@
       // 기본 양식이 이미 채워진 채로 열렸습니다. 유튜브만 넣으면 됩니다.
       report('양식은 이미 채워져 있습니다. 유튜브 링크 넣는 중…');
       try { await addYoutube(r.youtube); }
-      catch (e) { log('유튜브 실패', e.message, String(e.stack || '').slice(0, 300)); report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+      catch (e) { errLog('유튜브 넣기', e); report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
       return;
     }
     if (Date.now() - GM_getValue('autofillAt', 0) > 60000) {
@@ -695,7 +706,7 @@
     if (countForm() !== 1 || !docText().includes(r.no)) throw new Error('양식이 제대로 들어가지 않았습니다 (개수 ' + countForm() + ')');
     report('유튜브 링크 넣는 중…');
     try { await addYoutube(r.youtube); log('유튜브 끝 — 정상'); }
-    catch (e) { log('유튜브 실패', e.message, String(e.stack || '').slice(0, 300)); report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+    catch (e) { errLog('유튜브 넣기', e); report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
   }
 
   async function fillJimSite(r) {
@@ -713,7 +724,7 @@
     const ed = unsafeWindow.tinymce && unsafeWindow.tinymce.activeEditor;
     if (!ed) throw new Error('내용 칸(에디터)을 못 찾았습니다');
     let keep = '';
-    try { keep = [...ed.getBody().querySelectorAll('img')].map((im) => '<p>' + im.outerHTML + '</p>').join(''); } catch (e) {}
+    try { keep = [...ed.getBody().querySelectorAll('img')].map((im) => '<p>' + im.outerHTML + '</p>').join(''); } catch (e) { errLog('본문 사진 보존', e); }
     ed.setContent(html + keep);
   }
 
@@ -729,7 +740,7 @@
       const rows = [...document.querySelectorAll('input[name=checkNo]')].map((r) => {
         const hid = r.parentElement && r.parentElement.querySelector('input[type=hidden]') || r.closest('tr,li,div').querySelector('input[type=hidden]');
         let j = {};
-        try { j = JSON.parse(decodeURIComponent(escape(atob(hid.value)))); } catch (e) {}
+        try { j = JSON.parse(decodeURIComponent(escape(atob(hid.value)))); } catch (e) { errLog('신청서 정보 읽기', e); }
         return { radio: r, cart: j.cart };
       });
       const hit = rows.find((x) => x.cart === no);
@@ -762,7 +773,7 @@
       d.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:999999;background:#03c75a;color:#fff;font:bold 15px sans-serif;padding:14px 18px;border-radius:8px;box-shadow:0 2px 8px #0005';
       document.body.appendChild(d);
       setTimeout(() => d.remove(), 6000);
-    } catch (e) {}
+    } catch (e) { errLog('알림 띄우기', e); }
   }
   function rememberCafeUrl() {
     const isView = /\/articles\/\d+/.test(location.pathname) && !/write/.test(location.pathname);
@@ -884,7 +895,7 @@
     refresh();
     const getLatest = async () => {
       try { msg('후기 목록 받는 중…'); await fetchReviews(); GM_setValue('idx', 0); refresh(); msg(''); }
-      catch (err) { msg('실패: ' + err.message); }
+      catch (err) { errLog('후기 목록 받기', err); msg('실패: ' + err.message); }
     };
     $('lp-get').onclick = getLatest;
     const showPush = () => { const t = GM_getValue('gh_token', ''); $('lp-push').textContent = t ? (GM_getValue('pushStatus', '') || '토큰 저장됨 · 아직 올린 기록 없음') : '토큰 없음 — 등록 기록이 깃허브에 안 올라갑니다'; $('lp-tok').textContent = t ? '🔑 토큰 바꾸기/지우기' : '🔑 깃허브 토큰 넣기 (등록 기록 올리기)'; };
@@ -965,7 +976,7 @@
         msg('지우는 중…');
         const how = await clearBody();
         msg('본문을 지웠습니다 (' + how + ')');
-      } catch (err) { msg('실패: ' + err.message); console.error('[후기도우미]', err); }
+      } catch (err) { errLog('본문 지우기', err); msg('실패: ' + err.message); console.error('[후기도우미]', err); }
     };
     if (m === 'jimcafe' && Date.now() - GM_getValue('autofillAt', 0) < 40000) {
       setTimeout(() => { log('새로고침 뒤 자동 채우기 시작'); $('lp-fill').click(); }, 3500);
@@ -985,6 +996,7 @@
         if (m === 'jimsite') await fillJimSite(r);
         msg('채움 완료. 사진을 끌어다 넣고, 등록은 직접 누르세요.');
       } catch (err) {
+        errLog('채우기(' + m + ')', err);
         msg('실패: ' + err.message);
         console.error('[후기도우미]', err);
       }
