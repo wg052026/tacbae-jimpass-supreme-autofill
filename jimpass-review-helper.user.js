@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.5
+// @version      0.9.6
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -484,8 +484,6 @@
     }
     const search = root.querySelector('.se-popup-oglink-button, button[class*="search"], button[aria-label*="검색"]') ||
       [...root.querySelectorAll('button')].find((b) => /^검색$/.test((b.innerText || b.textContent || '').trim()));
-    await sleep(400);
-    if (search) { search.click(); log('유튜브 4 검색 단추 누름', btnInfo(search)); } else log('유튜브 4 검색 단추 없음(엔터만 보냄)');
     const findOk = () => {
       const c = [...root.querySelectorAll('.se-popup-button-confirm')].filter(shown);
       if (c.length) return c[0];
@@ -493,13 +491,19 @@
       if (t) return t;
       return [...document.querySelectorAll('.se-popup-button-confirm')].filter(shown)[0] || null;
     };
+    // 0.9.6 : 엔터만으로 미리보기를 불러오므로 검색은 바로 누르지 않습니다. 3초 지나도 잠겨 있을 때만 한 번 누릅니다
     let ok = null;
+    let searched = false;
     for (let i = 0; i < 48; i++) { // 최대 12초
       await sleep(250);
       ok = findOk();
       const preview = root.querySelector('[class*="preview"], [class*="oglink-info"], [class*="oglink_info"], img');
-      if (i % 4 === 3) log('유튜브 5 기다림', { 초: (i + 1) / 4, 확인단추: ok ? btnInfo(ok) : '없음', 미리보기: !!preview });
-      if (ok && !isOff(ok) && (preview || i >= 16)) break;
+      if (i % 2 === 1) log('유튜브 5 기다림', { 초: (i + 1) / 4, 확인단추: ok ? btnInfo(ok) : '없음', 미리보기: !!preview, 창있음: input.isConnected });
+      if (ok && !isOff(ok)) break;
+      if (i === 11 && !searched) {
+        searched = true;
+        if (search) { search.click(); log('유튜브 4 3초째 잠겨 있어 검색 단추 누름', btnInfo(search)); } else log('유튜브 4 검색 단추 없음');
+      }
     }
     if (!ok) { log('유튜브 6 확인 단추 없음', [...root.querySelectorAll('button')].map(btnInfo)); throw new Error('링크 창의 확인 단추를 못 찾았습니다'); }
     if (isOff(ok)) log('유튜브 6 확인 단추가 12초 뒤에도 잠김 — 그래도 눌러 봅니다', btnInfo(ok));
@@ -556,6 +560,7 @@
   // 진단: 에디터 구조와 선택 상태를 모아 복사합니다 (붙여넣어 보내 주세요)
   function diagnose() {
     const out = [];
+    out.push('복사 시각 +' + (Date.now() - t0) + 'ms (0.9.6) / 패널 안내: ' + ((document.getElementById('lp-msg') || {}).textContent || '').slice(0, 120));
     out.push('주소 ' + location.href.slice(0, 80) + ' / 최상단창 ' + (window === window.top));
     const ces = [...document.querySelectorAll('[contenteditable]')];
     out.push('편집칸 ' + ces.length + '개');
@@ -644,7 +649,7 @@
       // 기본 양식이 이미 채워진 채로 열렸습니다. 유튜브만 넣으면 됩니다.
       report('양식은 이미 채워져 있습니다. 유튜브 링크 넣는 중…');
       try { await addYoutube(r.youtube); }
-      catch (e) { report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+      catch (e) { log('유튜브 실패', e.message, String(e.stack || '').slice(0, 300)); report('유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
       return;
     }
     if (Date.now() - GM_getValue('autofillAt', 0) > 60000) {
@@ -689,8 +694,8 @@
     spyOn = false;
     if (countForm() !== 1 || !docText().includes(r.no)) throw new Error('양식이 제대로 들어가지 않았습니다 (개수 ' + countForm() + ')');
     report('유튜브 링크 넣는 중…');
-    try { await addYoutube(r.youtube); }
-    catch (e) { report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
+    try { await addYoutube(r.youtube); log('유튜브 끝 — 정상'); }
+    catch (e) { log('유튜브 실패', e.message, String(e.stack || '').slice(0, 300)); report('양식은 채웠습니다. 유튜브는 링크 단추로 직접: ' + r.youtube); throw new Error('유튜브 링크 자동 입력 실패: ' + e.message); }
   }
 
   async function fillJimSite(r) {
