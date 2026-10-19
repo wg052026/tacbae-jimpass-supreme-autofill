@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.4
+// @version      0.9.5
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -460,7 +460,14 @@
     }
     if (!input) throw new Error('링크 입력 칸이 열리지 않았습니다');
     // 0.9.4 : 단계마다 기록을 남기고, 미리보기가 뜨고 「확인」이 풀릴 때까지 기다렸다 누릅니다
-    const root = input.closest('.se-popup, .se-popup-oglink, [class*="popup"], [role="dialog"]') || document;
+    // 0.9.5 : 입력칸 자신(이름에 popup 이 들어 있음)을 창으로 잡던 것을 고침 — 단추가 든 바깥 창을 찾습니다
+    let root = (input.parentElement && input.parentElement.closest('.se-popup, [role="dialog"]')) || null;
+    if (!root) {
+      for (let el = input.parentElement, n = 0; el && n < 10; el = el.parentElement, n++) {
+        if (el.querySelector('button')) { root = el; break; }
+      }
+    }
+    if (!root) root = document;
     const btnInfo = (b) => ({ 글: (b.innerText || b.textContent || '').trim().slice(0, 12), 칸: String(b.className || '').slice(0, 60), 잠김: isOff(b) });
     const isOff = (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || /disabled/i.test(String(b.className || '')));
     const shown = (b) => b.offsetParent !== null || b.getClientRects().length > 0;
@@ -482,7 +489,9 @@
     const findOk = () => {
       const c = [...root.querySelectorAll('.se-popup-button-confirm')].filter(shown);
       if (c.length) return c[0];
-      return [...root.querySelectorAll('button')].filter(shown).find((b) => /^(확인|추가|등록|삽입|첨부)$/.test((b.innerText || b.textContent || '').trim()));
+      const t = [...root.querySelectorAll('button')].filter(shown).find((b) => /^(확인|추가|등록|삽입|첨부)$/.test((b.innerText || b.textContent || '').trim()));
+      if (t) return t;
+      return [...document.querySelectorAll('.se-popup-button-confirm')].filter(shown)[0] || null;
     };
     let ok = null;
     for (let i = 0; i < 48; i++) { // 최대 12초
@@ -831,6 +840,7 @@
 
     // 0.9.3 : 다 쓴 후기(내 카페·짐패스 카페·짐패스 사이트 세 곳 모두 완료)를 골라 지웁니다
     const delPicked = new Set();
+    let pickInit = false;
     const allDone = (no) => ['my', 'jim', 'site'].every((k) => doneList(k).includes(no));
     const refresh = () => {
       const all = loadAll();
@@ -844,14 +854,25 @@
         const d = dn.includes(r.no);
         const country = r.title.includes('일본') ? '일본' : r.title.includes('미국') ? '미국' : '';
         const off = (c && country && c !== country) || (siteKey() === 'site' && !doneList('my').includes(r.no));
-        return `<div style="display:flex;align-items:center;border-bottom:1px solid #eee"><input type="checkbox" class="lp-delchk" data-no="${r.no}" title="지울 후기로 고르기" style="margin:0 2px 0 4px" ${delPicked.has(r.no) ? 'checked' : ''}><label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="flex:1;display:block;padding:2px 4px;font-size:12px;line-height:1.3;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
-          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${allDone(r.no) ? '🏁' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label></div>`;
+        // 0.9.5 : 동그라미(쓸 후기)와 네모(지울 후기)를 네모 하나로 합침 — 마지막에 체크한 것(▶)을 채우고, 체크한 것 전부를 지웁니다
+        if (!pickInit && all[pick]) { delPicked.add(all[pick].no); pickInit = true; }
+        const isCur = i === pick;
+        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:flex;align-items:center;border-bottom:1px solid #eee;padding:2px 4px;font-size:12px;line-height:1.3;cursor:pointer;${isCur ? 'background:#eef5ff;font-weight:bold;' : ''}${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}"><input type="checkbox" class="lp-delchk" data-no="${r.no}" data-i="${i}" style="margin:0 4px 0 0" ${delPicked.has(r.no) ? 'checked' : ''}>${isCur ? '▶ ' : ''}${d ? '✔ ' : ''}${allDone(r.no) ? '🏁' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
       }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
+      const setCur = (i) => { $('lp-sel').value = i; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +i); };
       $('lp-list').querySelectorAll('input.lp-delchk').forEach((el) => {
-        el.onchange = () => { if (el.checked) delPicked.add(el.dataset.no); else delPicked.delete(el.dataset.no); };
-      });
-      $('lp-list').querySelectorAll('input[name=lp-pick]').forEach((el) => {
-        el.onchange = () => { $('lp-sel').value = el.value; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +el.value); };
+        el.onchange = () => {
+          if (el.checked) { delPicked.add(el.dataset.no); setCur(el.dataset.i); }
+          else {
+            delPicked.delete(el.dataset.no);
+            if (+el.dataset.i === +$('lp-sel').value) {
+              const rest = all.findIndex((x) => delPicked.has(x.no));
+              if (rest >= 0) setCur(rest);
+            }
+          }
+          log('고르기', { 후기: el.dataset.no, 체크: el.checked, 채울것: (all[$('lp-sel').value] || {}).no, 고른수: delPicked.size });
+          refresh();
+        };
       });
       $('lp-st').textContent = all.length ? '글주소 ' + all.filter((r) => urlOf(r.no)).length + '/' + all.length + ' · 이 사이트 ' + all.filter((r) => dn.includes(r.no)).length + '/' + all.length + ' 완료' : '(받아오기를 누르세요)';
     };
