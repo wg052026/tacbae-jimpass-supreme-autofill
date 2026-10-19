@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.1
+// @version      0.9.2
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -385,6 +385,10 @@
   }
 
   async function fillTags(tags) {
+    // 0.9.2 : 태그가 글 한 줄(「#짐패스 #배송대행」)로 와도 낱말별로 나눠 넣습니다(한 글자씩 들어가던 문제).
+    if (typeof tags === 'string') tags = (tags.match(/#?[^\s#,]+/g) || []).map((t) => t.replace(/^#/, ''));
+    tags = (Array.isArray(tags) ? tags : []).map((t) => String(t).replace(/^#/, '').trim()).filter(Boolean);
+    try { log('태그 넣기', { 개수: tags.length, 태그: tags.join(',') }); } catch (e) {}
     const box = document.querySelector('input[placeholder*="태그"]');
     if (!box) throw new Error('태그 칸을 못 찾았습니다');
     for (const tag of tags) {
