@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.2
+// @version      0.9.3
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -759,6 +759,7 @@
       <button id="lp-upd" style="display:none;width:100%;margin-bottom:4px;padding:6px;font-size:13px;font-weight:bold;color:#fff;background:#f57c00;border:0;border-radius:4px;cursor:pointer">새 판 있음 — 눌러서 업데이트</button>
       <button id="lp-get" style="width:100%;padding:6px;font-size:13px;cursor:pointer">최신 후기 받아오기</button>
       <input id="lp-sel" type="hidden"><div id="lp-list" style="border:1px solid #ccc;border-radius:4px;margin:4px 0"></div>
+      <div style="display:flex;gap:4px"><button id="lp-pickdone" style="flex:1;padding:4px;font-size:12px;cursor:pointer">☑ 다 쓴 것 고르기</button><button id="lp-del" style="flex:1;padding:4px;font-size:12px;cursor:pointer;color:#c00">✖ 고른 후기 지우기</button></div>
       <button id="lp-tok" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">🔑 깃허브 토큰 넣기 (등록 기록 올리기)</button>
       <div id="lp-push" style="font-size:11px;color:#666;margin-top:2px"></div>
       <button id="lp-diag" style="width:100%;margin-top:6px;padding:4px;font-size:12px;cursor:pointer">📋 로그 복사</button>
@@ -790,6 +791,9 @@
     const msg = (s) => ($('lp-msg').textContent = s);
     if (box._applyFold) box._applyFold();
 
+    // 0.9.3 : 다 쓴 후기(내 카페·짐패스 카페·짐패스 사이트 세 곳 모두 완료)를 골라 지웁니다
+    const delPicked = new Set();
+    const allDone = (no) => ['my', 'jim', 'site'].every((k) => doneList(k).includes(no));
     const refresh = () => {
       const all = loadAll();
       const dn = doneList(siteKey());
@@ -802,9 +806,12 @@
         const d = dn.includes(r.no);
         const country = r.title.includes('일본') ? '일본' : r.title.includes('미국') ? '미국' : '';
         const off = (c && country && c !== country) || (siteKey() === 'site' && !doneList('my').includes(r.no));
-        return `<label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="display:block;padding:2px 6px;font-size:12px;line-height:1.3;border-bottom:1px solid #eee;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
-          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label>`;
+        return `<div style="display:flex;align-items:center;border-bottom:1px solid #eee"><input type="checkbox" class="lp-delchk" data-no="${r.no}" title="지울 후기로 고르기" style="margin:0 2px 0 4px" ${delPicked.has(r.no) ? 'checked' : ''}><label title="${urlOf(r.no) || '저장된 글 주소 없음'}" style="flex:1;display:block;padding:2px 4px;font-size:12px;line-height:1.3;cursor:pointer;${d ? 'color:#999;text-decoration:line-through;' : ''}${off && !d ? 'color:#bbb;' : ''}">
+          <input type="radio" name="lp-pick" value="${i}" ${i === pick ? 'checked' : ''}> ${d ? '✔ ' : ''}${allDone(r.no) ? '🏁' : ''}${urlOf(r.no) ? '🔗' : ''}${country} ${r.no} ${r.title.replace(/^.*이용 후기\s*/, '').slice(0, 22)}</label></div>`;
       }).join('') || '<div style="padding:6px;color:#999">후기가 없습니다</div>';
+      $('lp-list').querySelectorAll('input.lp-delchk').forEach((el) => {
+        el.onchange = () => { if (el.checked) delPicked.add(el.dataset.no); else delPicked.delete(el.dataset.no); };
+      });
       $('lp-list').querySelectorAll('input[name=lp-pick]').forEach((el) => {
         el.onchange = () => { $('lp-sel').value = el.value; $('lp-sel').dataset.user = '1'; GM_setValue('idx', +el.value); };
       });
@@ -844,6 +851,44 @@
       pushDone();
       refresh();
       msg(r.no + (nd.includes(r.no) ? ' 완료로 표시' : ' 완료 표시 취소'));
+    };
+    $('lp-pickdone').onclick = () => {
+      const all = loadAll();
+      delPicked.clear();
+      all.filter((r) => allDone(r.no)).forEach((r) => delPicked.add(r.no));
+      refresh();
+      msg(delPicked.size ? '세 곳 모두 올린 후기 ' + delPicked.size + '건을 골랐습니다. 「✖ 고른 후기 지우기」를 누르세요' : '세 곳 모두 올린 후기가 아직 없습니다. 지울 것을 직접 체크하세요');
+    };
+    $('lp-del').onclick = async () => {
+      const nos = [...delPicked];
+      if (!nos.length) return msg('지울 후기를 왼쪽 네모에 체크하세요');
+      if (!confirm('후기 ' + nos.length + '건을 목록에서 지웁니다.\n' + nos.join(', ') + '\n(깃허브 후기 목록에서도 지웁니다)')) return;
+      // 이 크롬의 목록에서 먼저 뺍니다
+      const left = loadAll().filter((r) => !nos.includes(r.no));
+      GM_setValue('reviews', JSON.stringify(left));
+      GM_setValue('idx', 0); $('lp-sel').dataset.user = '';
+      log('후기 지우기', nos.join(','), '남은', left.length);
+      const token = GM_getValue('gh_token', '');
+      if (!token) { delPicked.clear(); refresh(); return msg(nos.length + '건을 이 크롬 목록에서 지웠습니다. 토큰이 없어 깃허브 목록은 그대로라 「최신 후기 받아오기」를 누르면 다시 나옵니다'); }
+      try {
+        msg('깃허브 후기 목록에서 지우는 중…');
+        const api = REVIEWS_API.replace('?ref=main', '');
+        const get = await ghReq('GET', api, token);
+        if (get.status !== 200) throw new Error('읽기 응답 ' + get.status + ' ' + String(get.responseText).slice(0, 80));
+        const j = JSON.parse(get.responseText);
+        const remote = JSON.parse(b64dec(j.content));
+        const kept = remote.filter((r) => !nos.includes(r.no));
+        const put = await ghReq('PUT', api, token, { message: '후기 도우미: 다 쓴 후기 지움 ' + nos.join(','), content: b64enc(JSON.stringify(kept, null, 2) + '\n'), sha: j.sha, branch: 'main' });
+        if (put.status !== 200 && put.status !== 201) throw new Error('쓰기 응답 ' + put.status + ' ' + String(put.responseText).slice(0, 100));
+        GM_setValue('reviews', JSON.stringify(kept));
+        log('깃허브 후기 지움', remote.length, '→', kept.length);
+        delPicked.clear(); refresh();
+        msg(nos.length + '건을 지웠습니다 (깃허브 목록 ' + remote.length + '건 → ' + kept.length + '건)');
+      } catch (e) {
+        log('깃허브 후기 지우기 실패', e.message);
+        delPicked.clear(); refresh();
+        msg('이 크롬 목록에서는 지웠지만 깃허브 목록은 못 지웠습니다 (' + e.message + '). 「📋 로그 복사」로 보내 주세요');
+      }
     };
     $('lp-diag').onclick = async () => {
       const t = diagnose() + '\n\n=== 네트워크 ===\n' + NET.join('\n') + '\n\n=== 로그 ===\n' + LOG.join('\n');
