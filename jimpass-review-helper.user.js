@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.3
+// @version      0.9.4
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -459,15 +459,53 @@
       input = document.querySelector('.se-popup input[type="text"], .se-popup-oglink input, input[placeholder*="URL"], input[placeholder*="링크"]');
     }
     if (!input) throw new Error('링크 입력 칸이 열리지 않았습니다');
+    // 0.9.4 : 단계마다 기록을 남기고, 미리보기가 뜨고 「확인」이 풀릴 때까지 기다렸다 누릅니다
+    const root = input.closest('.se-popup, .se-popup-oglink, [class*="popup"], [role="dialog"]') || document;
+    const btnInfo = (b) => ({ 글: (b.innerText || b.textContent || '').trim().slice(0, 12), 칸: String(b.className || '').slice(0, 60), 잠김: isOff(b) });
+    const isOff = (b) => !!(b.disabled || b.getAttribute('aria-disabled') === 'true' || /disabled/i.test(String(b.className || '')));
+    const shown = (b) => b.offsetParent !== null || b.getClientRects().length > 0;
+    log('유튜브 1 입력칸 찾음', { 칸: String(input.className || '').slice(0, 60), 창: String(root.className || 'document').slice(0, 60) });
+    log('유튜브 2 창 안 단추', [...root.querySelectorAll('button')].map(btnInfo));
     input.focus();
     setNative(input, url);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(200);
+    log('유튜브 3 주소 넣음', { 들어간값: input.value });
     for (const type of ['keydown', 'keypress', 'keyup']) {
       input.dispatchEvent(new KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
     }
-    await sleep(600);
-    const ok = [...document.querySelectorAll('.se-popup button, .se-popup-button')].find((b) => /확인|추가|등록/.test(b.textContent));
-    if (ok) ok.click();
+    const search = root.querySelector('.se-popup-oglink-button, button[class*="search"], button[aria-label*="검색"]') ||
+      [...root.querySelectorAll('button')].find((b) => /^검색$/.test((b.innerText || b.textContent || '').trim()));
+    await sleep(400);
+    if (search) { search.click(); log('유튜브 4 검색 단추 누름', btnInfo(search)); } else log('유튜브 4 검색 단추 없음(엔터만 보냄)');
+    const findOk = () => {
+      const c = [...root.querySelectorAll('.se-popup-button-confirm')].filter(shown);
+      if (c.length) return c[0];
+      return [...root.querySelectorAll('button')].filter(shown).find((b) => /^(확인|추가|등록|삽입|첨부)$/.test((b.innerText || b.textContent || '').trim()));
+    };
+    let ok = null;
+    for (let i = 0; i < 48; i++) { // 최대 12초
+      await sleep(250);
+      ok = findOk();
+      const preview = root.querySelector('[class*="preview"], [class*="oglink-info"], [class*="oglink_info"], img');
+      if (i % 4 === 3) log('유튜브 5 기다림', { 초: (i + 1) / 4, 확인단추: ok ? btnInfo(ok) : '없음', 미리보기: !!preview });
+      if (ok && !isOff(ok) && (preview || i >= 16)) break;
+    }
+    if (!ok) { log('유튜브 6 확인 단추 없음', [...root.querySelectorAll('button')].map(btnInfo)); throw new Error('링크 창의 확인 단추를 못 찾았습니다'); }
+    if (isOff(ok)) log('유튜브 6 확인 단추가 12초 뒤에도 잠김 — 그래도 눌러 봅니다', btnInfo(ok));
+    for (let k = 1; k <= 3; k++) {
+      for (const type of ['mousedown', 'mouseup', 'click']) ok.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      await sleep(800);
+      const closed = !input.isConnected || !shown(input);
+      log('유튜브 7 확인 누름', { 번째: k, 창닫힘: closed });
+      if (closed) break;
+      ok = findOk() || ok;
+    }
+    await sleep(500);
+    const card = document.querySelector('.se-component.se-oglink, .se-module-oglink, .se-oglink, [class*="se-oglink"]:not([class*="popup"])');
+    log('유튜브 8 본문에 카드', card ? '들어감' : '없음');
+    if (input.isConnected && shown(input)) throw new Error('확인을 세 번 눌렀는데 링크 창이 안 닫혔습니다');
   }
 
   // 기존 양식을 지우고, 값이 채워진 양식 전체를 새로 넣습니다
