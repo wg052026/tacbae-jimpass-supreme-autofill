@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.9
+// @version      0.9.10
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -281,7 +281,7 @@
     return all.find(ok) || null;
   };
   const shopOf = (title) =>
-    /슈프림/.test(title) ? '슈프림' : /캐피탈/.test(title) ? '캐피탈' : '';
+    /슈프림/.test(title) ? '슈프림' : /캐피탈/.test(title) ? '캐피탈' : /히스테릭/.test(title) ? '히스테릭 글래머' : '';
 
 
   /* ---------- 새 판 확인 (0.7.0) : 패널을 열 때 깃허브의 최신 판 번호를 봅니다 ---------- */
