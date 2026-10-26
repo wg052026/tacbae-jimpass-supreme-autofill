@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.10
+// @version      0.9.11
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
 // @match        https://cafe.naver.com/*
 // @match        https://www.jimpass.com/article/config/code/review/mode/write*
 // @match        https://www.jimpass.com/mypage/select/popup/*
+// @match        https://www.jimpass.com/mypage/select?*
+// @match        https://www.jimpass.com/mypage/select
 // @match        https://www.jimpass.com/article/view/code/review/*
 // @match        https://www.jimpass.com/article/list/code/review/*
 // @grant        GM_getValue
@@ -950,38 +952,56 @@
   }
 
   /* ---------- 관련 신청서 선택 창: 신청서번호로 찾아 체크 ---------- */
+  // 0.9.11 : 신청서 창은 다른 창이라 로그가 보이지 않아, 한 줄씩 저장해 두었다가 「로그 복사」에 함께 붙입니다
+  function plog(...a) {
+    log(...a);
+    try {
+      const old = GM_getValue('popupLog', '');
+      const line = new Date().toTimeString().slice(0, 8) + ' ' + a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+      GM_setValue('popupLog', (old + '\n' + line).split('\n').slice(-60).join('\n'));
+    } catch (e) { /* 저장 실패는 무시 */ }
+  }
   function popupRoutine() {
     const want = jget('wantCart', 'null');
-    if (!want || Date.now() - want.at > 120000) { log('신청서 창: 할 일 없음'); return; }
+    plog('신청서 창 시작', location.pathname + location.search.replace(/keyword=[^&]*/, 'keyword=…'), want ? '할 일 ' + want.no + ' ' + Math.round((Date.now() - want.at) / 1000) + '초 전' : '할 일 없음');
+    if (!want || Date.now() - want.at > 180000) { plog('신청서 창: 할 일 없음(또는 3분 지남)'); return; }
     const no = want.no;
+    let tries = 0;
     const run = () => {
       const kw = document.querySelector('input[name=keyword]');
       const sel = document.querySelector('select[name=search]');
-      if (!kw || !sel) return setTimeout(run, 500);
+      if (!kw || !sel) {
+        if (++tries > 40) { plog('★검색 칸을 못 찾음', { kw: !!kw, sel: !!sel, 주소: location.pathname }); toast('후기 도우미: 신청서 창에서 검색 칸을 못 찾았습니다'); return; }
+        return setTimeout(run, 500);
+      }
       const rows = [...document.querySelectorAll('input[name=checkNo]')].map((r) => {
         const hid = r.parentElement && r.parentElement.querySelector('input[type=hidden]') || r.closest('tr,li,div').querySelector('input[type=hidden]');
         let j = {};
         try { j = JSON.parse(decodeURIComponent(escape(atob(hid.value)))); } catch (e) { errLog('신청서 정보 읽기', e); }
         return { radio: r, cart: j.cart };
       });
+      plog('목록 줄 수', rows.length, '찾는 번호', no);
       const hit = rows.find((x) => x.cart === no);
       if (hit) {
         hit.radio.click();
-        log('신청서 체크', no);
+        plog('신청서 체크', no, '체크됨=' + hit.radio.checked);
         toast('후기 도우미: ' + no + ' 신청서를 체크했습니다');
         GM_setValue('wantCart', 'null');
-        const ok = [...document.querySelectorAll('button,input[type=button],input[type=submit],a')].find((e) => /^(선택|선택완료|확인|적용)$/.test((e.innerText || e.value || '').trim()) && !e.classList.contains('event-click-view'));
-        log('확인 단추', ok ? ok.outerHTML.slice(0, 120) : '없음');
-        if (ok) setTimeout(() => ok.click(), 400);
+        const ok = document.querySelector('button.event-click-select') ||
+          [...document.querySelectorAll('button,input[type=button],input[type=submit],a')].find((e) => /^(선택완료|선택|확인|적용)$/.test((e.innerText || e.value || '').trim()) && !e.classList.contains('event-click-view'));
+        plog('선택완료 단추', ok ? ok.outerHTML.slice(0, 120) : '없음');
+        if (ok) setTimeout(() => { ok.click(); plog('선택완료 누름'); }, 400);
         return;
       }
       if (kw.value !== no) {
-        // 이 목록에 없으면 신청서번호로 검색
+        // 이 목록에 없으면 신청서번호로 검색 (검색 결과는 주소가 /mypage/select 로 바뀌므로 그 주소에서도 도우미가 이어서 일합니다)
         sel.value = 'cart';
         kw.value = no;
-        log('신청서번호 검색', no);
-        (document.querySelector('form.form-search') || kw.form).submit();
-      } else { toast('후기 도우미: 신청서 ' + no + ' 를 찾지 못했습니다'); log('검색 결과에 없음', no); }
+        plog('신청서번호 검색', no);
+        const form = document.querySelector('form.form-search') || kw.form;
+        const btn = form && form.querySelector('button[type=submit], button:not([type]), input[type=submit]');
+        if (btn) btn.click(); else form.submit();
+      } else { toast('후기 도우미: 신청서 ' + no + ' 를 찾지 못했습니다'); plog('★검색 결과에 없음', no); }
     };
     setTimeout(run, 800);
   }
@@ -1210,7 +1230,7 @@
       }
     };
     $('lp-diag').onclick = async () => {
-      const t = diagnose() + '\n\n=== 네트워크 ===\n' + NET.join('\n') + '\n\n=== 로그 ===\n' + LOG.join('\n');
+      const t = diagnose() + '\n\n=== 네트워크 ===\n' + NET.join('\n') + '\n\n=== 신청서 창 로그 ===\n' + GM_getValue('popupLog', '(없음)') + '\n\n=== 로그 ===\n' + LOG.join('\n');
       try { await navigator.clipboard.writeText(t); msg('진단 내용을 복사했습니다. 대화창에 붙여넣어 보내 주세요'); }
       catch (e) { msg('복사 실패. 아래 내용을 직접 복사하세요'); prompt('진단 내용', t); }
     };
@@ -1249,7 +1269,7 @@
     };
   }
 
-  if (location.pathname.startsWith('/mypage/select/popup')) { document.addEventListener('DOMContentLoaded', popupRoutine); return; }
+  if (location.pathname.startsWith('/mypage/select')) { document.addEventListener('DOMContentLoaded', popupRoutine); return; }
 
   /* ---------- 0.8.0 : 짐패스 사이트 사진 「본문삽입」 단추가 생기면 전부 자동으로 누릅니다 ---------- */
   function autoInsertPhotos() {
