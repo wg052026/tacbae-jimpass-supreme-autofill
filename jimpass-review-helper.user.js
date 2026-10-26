@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.11
+// @version      0.9.12
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -1269,7 +1269,12 @@
     };
   }
 
-  if (location.pathname.startsWith('/mypage/select')) { document.addEventListener('DOMContentLoaded', popupRoutine); return; }
+  if (location.pathname.startsWith('/mypage/select')) {
+    // 0.9.12 : 창이 늦게 붙으면 「화면 다 읽음」 신호가 이미 지나가 일을 못 시작했습니다 — 이미 읽혔으면 바로 시작합니다
+    plog('신청서 창에 도우미가 붙음', '화면상태=' + document.readyState, '주소=' + location.pathname);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', popupRoutine); else popupRoutine();
+    return;
+  }
 
   /* ---------- 0.8.0 : 짐패스 사이트 사진 「본문삽입」 단추가 생기면 전부 자동으로 누릅니다 ---------- */
   function autoInsertPhotos() {
