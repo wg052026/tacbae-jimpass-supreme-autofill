@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.13
+// @version      0.9.14
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -645,6 +645,7 @@
   async function fillMyCafe(r, say) {
     GM_setValue('pending_my', r.no);
     // 0.9.13 : 채우는 때 화면에 떠 있는 글 번호를 적어 둡니다 — 앞 글 보기 화면에서 채우면 그 글 주소를 다음 후기 것으로 잘못 저장하던 것을 막습니다
+    GM_setValue('pending_my_title', r.title);
     GM_setValue('pending_my_base', ((/\/articles\/(\d+)/.exec(location.pathname) || [])[1]) || '');
     log('내 카페 채우기 시작', r.no, '화면 글번호=' + GM_getValue('pending_my_base', '') + ' 주소=' + location.href);
     await fillTitle(r.title);
@@ -1042,7 +1043,20 @@
       const curId = ((/\/articles\/(\d+)/.exec(location.pathname) || [])[1]) || '';
       const uAll = jget('urls', '{}');
       const usedBy = Object.keys(uAll).find((k) => k !== no && (/\/articles\/(\d+)/.exec(uAll[k]) || [])[1] === curId);
-      if (no && (curId === GM_getValue('pending_my_base', '') || usedBy)) {
+      // 0.9.14 : 글 제목을 후기 제목과 맞대어 같을 때만 저장합니다 (보기 화면의 제목 부분만 읽음 — 아래 목록의 다른 글 제목은 보지 않음)
+      const norm = (t) => String(t || '').replace(/\s+/g, '').replace(/[|:\-·]+/g, '');
+      const wantT = GM_getValue('pending_my_title', '');
+      let viewT = '';
+      try {
+        viewT = [document.title].concat([...document.querySelectorAll('h3.title_text, .title_text, .ArticleTitle .title, .article_header .title, .tit-box .title, h3.tit')].map((e) => e.innerText || e.textContent)).join(' ');
+      } catch (e) { errLog('글 제목 읽기', e); }
+      const titleOk = !wantT || (norm(viewT).includes(norm(wantT).slice(0, 40)));
+      if (no && !titleOk) {
+        if (window.__lpTitleLog !== curId + '|' + norm(viewT).slice(0, 30)) {
+          window.__lpTitleLog = curId + '|' + norm(viewT).slice(0, 30);
+          log('글 주소 저장 보류(제목 다름)', no, '글번호=' + curId, '보이는 제목=' + viewT.replace(/\s+/g, ' ').slice(0, 80), '찾는 제목=' + wantT.slice(0, 40));
+        }
+      } else if (no && (curId === GM_getValue('pending_my_base', '') || usedBy)) {
         // 0.9.13 : 앞 글(또는 다른 후기가 이미 쓴 글)의 보기 화면이면 저장하지 않고 새 글이 뜰 때까지 기다립니다
         if (!window.__lpSkipLog || window.__lpSkipLog !== curId) {
           window.__lpSkipLog = curId;
@@ -1051,7 +1065,7 @@
       } else if (no) {
         const u = jget('urls', '{}');
         u[no] = location.origin + location.pathname;
-        log('글 주소 저장', no, u[no]);
+        log('글 주소 저장', no, u[no], '제목 맞음=' + (wantT ? titleOk : '검사 안 함'));
         GM_setValue('urls', JSON.stringify(u));
         GM_setValue('lastCafeUrl', u[no]);
         markDone('my', no);
