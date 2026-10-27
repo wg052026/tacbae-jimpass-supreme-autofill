@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.12
+// @version      0.9.13
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -269,7 +269,23 @@
     log('완료 기록', key, no);
     pushDone();
   };
-  const urlOf = (no) => jget('urls', '{}')[no] || '';
+  // 0.9.13 : 글 주소는 늘 https://cafe.naver.com/imagedd/글번호 꼴로 씁니다 (사장님 지시 2026-10-27)
+  const urlOf = (no) => {
+    const raw = jget('urls', '{}')[no] || '';
+    const m = /\/articles\/(\d+)/.exec(raw);
+    return m && /cafe\.naver\.com/.test(raw) && raw.includes('/cafes/' + MY_CAFE) ? 'https://cafe.naver.com/imagedd/' + m[1] : raw;
+  };
+  // 0.9.13 : 한 칸씩 밀려 저장된 주소(2026-10-27 실측: 223·223·224·225 → 맞는 값 223·224·225·226)를 한 번만 바로잡습니다
+  try {
+    if (!GM_getValue('urlsFix_0913', '')) {
+      const fix = { J901062: 223, J898362: 224, J901784: 225, U898453: 226 };
+      const u = jget('urls', '{}');
+      for (const k of Object.keys(fix)) u[k] = 'https://cafe.naver.com/ca-fe/cafes/' + MY_CAFE + '/articles/' + fix[k];
+      GM_setValue('urls', JSON.stringify(u));
+      GM_setValue('urlsFix_0913', '1');
+      log('글 주소 바로잡음', JSON.stringify(fix));
+    }
+  } catch (e) { errLog('글 주소 바로잡기', e); }
   // 이 사이트에서 아직 안 올린 후기를 고릅니다 (고른 후기가 맞으면 그것, 아니면 첫 번째)
   const cur = () => {
     const all = loadAll();
@@ -628,6 +644,9 @@
   /* ---------- 사이트별 채우기 ---------- */
   async function fillMyCafe(r, say) {
     GM_setValue('pending_my', r.no);
+    // 0.9.13 : 채우는 때 화면에 떠 있는 글 번호를 적어 둡니다 — 앞 글 보기 화면에서 채우면 그 글 주소를 다음 후기 것으로 잘못 저장하던 것을 막습니다
+    GM_setValue('pending_my_base', ((/\/articles\/(\d+)/.exec(location.pathname) || [])[1]) || '');
+    log('내 카페 채우기 시작', r.no, '화면 글번호=' + GM_getValue('pending_my_base', '') + ' 주소=' + location.href);
     await fillTitle(r.title);
     const ed = editorEl();
     caretAtEnd(ed);
@@ -1020,9 +1039,19 @@
     const isView = /\/articles\/\d+/.test(location.pathname) && !/write/.test(location.pathname);
     if (location.href.includes('/cafes/' + MY_CAFE) && isView) {
       const no = GM_getValue('pending_my', '');
-      if (no) {
+      const curId = ((/\/articles\/(\d+)/.exec(location.pathname) || [])[1]) || '';
+      const uAll = jget('urls', '{}');
+      const usedBy = Object.keys(uAll).find((k) => k !== no && (/\/articles\/(\d+)/.exec(uAll[k]) || [])[1] === curId);
+      if (no && (curId === GM_getValue('pending_my_base', '') || usedBy)) {
+        // 0.9.13 : 앞 글(또는 다른 후기가 이미 쓴 글)의 보기 화면이면 저장하지 않고 새 글이 뜰 때까지 기다립니다
+        if (!window.__lpSkipLog || window.__lpSkipLog !== curId) {
+          window.__lpSkipLog = curId;
+          log('글 주소 저장 보류', no, '글번호=' + curId, usedBy ? '이미 ' + usedBy + ' 의 글' : '채울 때 떠 있던 앞 글');
+        }
+      } else if (no) {
         const u = jget('urls', '{}');
         u[no] = location.origin + location.pathname;
+        log('글 주소 저장', no, u[no]);
         GM_setValue('urls', JSON.stringify(u));
         GM_setValue('lastCafeUrl', u[no]);
         markDone('my', no);
