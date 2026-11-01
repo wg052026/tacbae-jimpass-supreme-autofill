@@ -1,5 +1,5 @@
 {
- "갱신": "2026-11-01T13:49:58.245Z",
+ "갱신": "2026-11-01T13:54:21.764Z",
  "my": [
   "U000000",
   "U885153",
@@ -18,8 +18,7 @@
   "J898362",
   "J901784",
   "U898453",
-  "J905000",
-  "J905001"
+  "J905000"
  ],
  "jim": [
   "U885153",
@@ -41,7 +40,7 @@
  "urls": {
   "U000000": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/206",
   "U000001": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/207",
-  "U898453": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/225",
+  "U898453": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/226",
   "U885153": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/211",
   "U885152": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/211",
   "U882078": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/212",
@@ -55,9 +54,9 @@
   "J898503": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/220",
   "J898536": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/222",
   "J901062": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/223",
-  "J898362": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/223",
-  "J901784": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/224",
+  "J898362": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/224",
+  "J901784": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/225",
   "J905000": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/227",
-  "J905001": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/227"
+  "J905001": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/228"
  }
 }
