@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.15
+// @version      0.9.16
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -633,16 +633,18 @@
     while (w < limit) { await sleep(500); w += 500; if (wraps() >= w0 + ph.length) break; if (w % 2000 === 0) log('짐패스 웹 사진 3 올리는 중', { 초: w / 1000, 첨부목록: w0 + '→' + wraps() }); }
     const got = wraps() - w0;
     log('짐패스 웹 사진 3 첨부 결과', { 첨부목록: w0 + '→' + wraps(), 걸린초: w / 1000, 목록글: [...document.querySelectorAll('.file-wrap')].slice(-ph.length).map((e) => e.innerText.replace(/\s+/g, ' ').slice(0, 40)) });
+    // 0.9.16 : 본문에서 사진을 빼지 않습니다 — 「본문삽입」 자동 누름(0.8.0)으로 들어간 사진을 그대로 둡니다 (사장님 지시 2026-11-01 23:10: 사진은 파일첨부와 본문 양쪽에)
     await sleep(1500);
-    let removed = 0;
+    let bodyN = 0;
     if (ed) {
-      const strip = () => { ed.getBody().querySelectorAll('img').forEach((i) => { if (!bodyImgs0.has(i)) { i.remove(); removed++; } }); };
-      strip(); await sleep(1500); strip();
+      let ww = 0; const want = bodyImgs0.size + ph.length;
+      while (ww < 3000 + 900 * ph.length) { bodyN = ed.getBody().querySelectorAll('img').length; if (bodyN >= want) break; await sleep(500); ww += 500; }
+      bodyN = ed.getBody().querySelectorAll('img').length;
       try { ed.setDirty && ed.setDirty(true); ed.save && ed.save(); } catch (e) { errLog('짐패스 웹 본문 저장', e); }
     }
-    log('짐패스 웹 사진 4 본문에 저절로 들어간 사진 뺌', { 뺀수: removed, 본문사진: ed ? ed.getBody().querySelectorAll('img').length : '-' });
+    log('짐패스 웹 사진 4 본문 사진 확인(빼지 않음)', { 본문사진: ed ? bodyN : '-', 넣을수: ph.length, 첨부목록: wraps() });
     if (got < ph.length) throw new Error('첨부 목록에 ' + got + '/' + ph.length + '장만 올라갔습니다 (' + (w / 1000) + '초 기다림)');
-    say && say('사진 ' + got + '장을 파일첨부에 올렸습니다 (본문에는 넣지 않음)');
+    say && say('사진 ' + got + '장을 파일첨부에 올렸습니다 (파일첨부와 본문 양쪽)');
     return 'attach';
   }
 
