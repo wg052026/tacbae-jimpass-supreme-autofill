@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         짐패스 후기 올리기 도우미
 // @namespace    leplus
-// @version      0.9.14
+// @version      0.9.15
 // @updateURL    https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/wg052026/tacbae-jimpass-supreme-autofill/main/jimpass-review-helper.user.js
 // @description  후기 txt 를 읽어 내 카페 / 짐패스 카페(미국·일본) / 짐패스 사이트 후기 글쓰기 화면에 채워 줍니다. 등록 단추는 직접 누릅니다.
@@ -286,6 +286,17 @@
       log('글 주소 바로잡음', JSON.stringify(fix));
     }
   } catch (e) { errLog('글 주소 바로잡기', e); }
+  // 0.9.15 : 케사 머플러 두 건이 같은 글 주소(227)로 저장된 것을 한 번만 바로잡습니다 (2026-11-01 실측: 227 = J905000, 228 = J905001 — 본문 첫 문장으로 맞춤)
+  try {
+    if (!GM_getValue('urlsFix_0915', '')) {
+      const fix = { J905000: 227, J905001: 228 };
+      const u = jget('urls', '{}');
+      for (const k of Object.keys(fix)) u[k] = 'https://cafe.naver.com/ca-fe/cafes/' + MY_CAFE + '/articles/' + fix[k];
+      GM_setValue('urls', JSON.stringify(u));
+      GM_setValue('urlsFix_0915', '1');
+      log('글 주소 바로잡음 0.9.15', JSON.stringify(fix));
+    }
+  } catch (e) { errLog('글 주소 바로잡기 0.9.15', e); }
   // 이 사이트에서 아직 안 올린 후기를 고릅니다 (고른 후기가 맞으면 그것, 아니면 첫 번째)
   const cur = () => {
     const all = loadAll();
