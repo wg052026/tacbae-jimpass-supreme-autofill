@@ -1,5 +1,5 @@
 {
- "갱신": "2026-11-01T14:05:29.986Z",
+ "갱신": "2026-11-04T13:47:48.402Z",
  "my": [
   "U000000",
   "U885153",
@@ -22,7 +22,8 @@
   "J905001",
   "J907198",
   "U883351",
-  "J905425"
+  "J905425",
+  "J904902"
  ],
  "jim": [
   "U885153",
@@ -45,7 +46,8 @@
  ],
  "site": [
   "J898536",
-  "J905001"
+  "J905001",
+  "U883351"
  ],
  "urls": {
   "U000000": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/206",
@@ -70,6 +72,7 @@
   "J905001": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/229",
   "J907198": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/230",
   "U883351": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/231",
-  "J905425": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/232"
+  "J905425": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/232",
+  "J904902": "https://cafe.naver.com/ca-fe/cafes/11298080/articles/233"
  }
 }
